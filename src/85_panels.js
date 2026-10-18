@@ -172,9 +172,18 @@ const Panels = (() => {
         b.append(c);
       }
       if (t === 'docs') {
-        b.append(h('<div class="note">Los documentos del proyecto son la base de conocimiento que los agentes consultan con «Consultar documentos». Admite texto pegado o archivos de texto (.txt, .md, .csv, .json, .html). La lectura automática de PDF y Word está pendiente de desarrollo.</div>'));
-        const f = h('<form class="form card" style="margin-top:12px"><div class="f2"><label class="f">Nombre del documento<input name="n" required maxlength="80" placeholder="p. ej. Briefing de marca"></label><label class="f">O sube un archivo de texto<input name="file" type="file" accept=".txt,.md,.csv,.json,.html,.xml,.yml,.yaml"></label></div><label class="f">Contenido<textarea name="t" placeholder="Pega aquí el texto"></textarea></label><div><button class="btn" type="submit">Añadir documento</button></div></form>');
-        f.file.onchange = async () => { const fl = f.file.files[0]; if (!fl) return; f.t.value = (await fl.text()).slice(0, 200000); if (!f.n.value) f.n.value = fl.name; };
+        b.append(h('<div class="note">Los documentos del proyecto son la base de conocimiento que los agentes consultan con «Consultar documentos». Admite texto pegado, archivos de texto, PDF y Word (.docx). Los PDF que son sobre todo imágenes los lee la IA una vez (consume algunas llamadas). Los documentos que adjuntas en un chat de este proyecto también se guardan aquí.</div>'));
+        const f = h('<form class="form card" style="margin-top:12px"><div class="f2"><label class="f">Nombre del documento<input name="n" required maxlength="80" placeholder="p. ej. Briefing de marca"></label><label class="f">O sube un archivo (texto, PDF o Word)<input name="file" type="file" accept=".txt,.md,.csv,.json,.html,.xml,.yml,.yaml,.pdf,.docx"></label></div><label class="f">Contenido<textarea name="t" placeholder="Pega aquí el texto"></textarea></label><div><button class="btn" type="submit">Añadir documento</button></div></form>');
+        f.file.onchange = async () => {
+          const fl = f.file.files[0]; if (!fl) return;
+          if (!f.n.value) f.n.value = fl.name.slice(0, 80);
+          if (DocRead.can(fl)) {
+            f.t.value = ''; f.t.placeholder = 'Leyendo ' + fl.name + '…'; const btn = f.querySelector('button[type=submit]'); btn.disabled = true;
+            try { const r = await DocRead.read(fl, m => { f.t.placeholder = m; }); f.t.value = String(r.text || '').slice(0, 200000); if (r.note) toast(r.note); if (!f.t.value.trim()) toast('El documento no contiene texto legible.', true); }
+            catch (e) { toast('No se pudo leer el documento: ' + ((e && e.message) || 'error'), true); }
+            finally { btn.disabled = false; f.t.placeholder = 'Pega aquí el texto'; }
+          } else f.t.value = (await fl.text()).slice(0, 200000);
+        };
         f.onsubmit = e => { e.preventDefault(); const text = f.t.value.trim(); if (!f.n.value.trim() || !text) { toast('Pon un nombre y el contenido del documento.', true); return; } const d = Store.put('pdocs', { id: uid('pd'), projectId: pid, name: trunc(f.n.value.trim(), 80), size: text.length, ts: Date.now() }); Store.put('ptext', { id: d.id, text: text.slice(0, 200000) }); Activity.log('proyecto', 'Documento añadido: ' + d.name, { projectId: pid }); toast('Documento añadido'); };
         b.append(f);
         const ds = Store.all('pdocs').filter(d => d.projectId === pid);
@@ -338,7 +347,7 @@ const Panels = (() => {
           ['Modelo de IA configurable por agente', ai ? 'op' : 'cfg', 'Nivel rápido, equilibrado o de razonamiento avanzado, y nombre de modelo opcional. Daniel usa el de razonamiento avanzado.'],
           ['Tareas programadas', 'lim', 'Se ejecutan con La Cueva abierta; si estaba cerrada, al abrirla.'],
           ['Consumo y costes', 'lim', 'Llamadas exactas y tokens estimados. Coste en euros solo si configuras un precio (para una API de pago futura).'],
-          ['Adjuntos', 'lim', 'Imágenes' + (AI.canImages ? ' (se envían a Claude)' : ' (esta vista no permite enviarlas)') + ' y archivos de texto. PDF y Word: se guardan pero no se leen (pendiente).'],
+          ['Adjuntos', 'lim', 'Imágenes' + (AI.canImages ? ' (se envían a Claude)' : ' (esta vista no permite enviarlas)') + ', archivos de texto, PDF y Word. Los PDF de imágenes los transcribe la IA. En un chat de proyecto, los documentos se guardan en el proyecto.'],
           ['Trabajo en segundo plano con la app cerrada', 'dev', 'Requiere el backend con cola de trabajos y cron (Fase 4).'],
           ['Integraciones externas (Shopify, Meta, Google, GitHub, n8n…)', 'dev', 'Requieren servidor con credenciales seguras (Fase 4).'],
           ['OpenAI API', 'dev', 'Requiere servidor y clave propia con facturación aparte.'],
@@ -382,7 +391,7 @@ const Panels = (() => {
       ['Memoria normativa y operativa', 'op', 'Reglas supervisadas por ámbitos y memoria aislada por proyecto. Las reglas no pueden tocar permisos.'],
       ['Recuperación de contexto', 'lim', 'Por palabras clave. Búsqueda semántica: pendiente.'],
       ['Consumo y costes', 'op', 'Llamadas y tokens reales que devuelve el proveedor. Coste en euros si configuras el precio en Ajustes.'],
-      ['Adjuntos', 'lim', 'Imágenes y archivos de texto se envían a la IA; las imágenes no se guardan en el servidor tras la conversación. PDF y Word: pendiente.'],
+      ['Adjuntos', 'lim', 'Imágenes, texto, PDF y Word. Los PDF de imágenes los transcribe la IA una vez; el texto queda guardado (en un chat de proyecto, también en sus documentos). Las imágenes sueltas no se guardan en el servidor.'],
       ['Integraciones externas (Gmail, Drive, Shopify, Meta, Google…)', 'dev', 'El servidor ya guarda credenciales de forma segura; cada integración se añadirá con permisos por proyecto y aprobación para acciones sensibles.'],
       ['Voz y reuniones visibles entre agentes', 'dev', 'Fase 5.'],
       ['Varios usuarios', 'dev', 'Hoy hay un único administrador.']

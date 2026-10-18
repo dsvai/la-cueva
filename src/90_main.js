@@ -61,7 +61,7 @@ const NEXT_SERVER_MD = `## Informe de la Fase 4 (backend)
 
 **5. Limitaciones detectadas:** cada llamada de IA se factura en tu cuenta del proveedor (no en tu plan de Claude). El límite diario de llamadas de Ajustes protege de sustos.
 
-**6. Siguiente paso recomendado:** primera integración real (Gmail o Drive con OAuth propio y permisos por proyecto) y lectura de PDF y Word.`;
+**6. Siguiente paso recomendado:** primera integración real (Gmail o Drive con OAuth propio y permisos por proyecto) con permisos por proyecto.`;
 
 const NEXT_MD = `## Informe de esta entrega
 
@@ -73,7 +73,7 @@ const NEXT_MD = `## Informe de esta entrega
 
 **4. Qué necesitas configurar:** nada para usarla hoy, salvo aceptar el permiso de Claude la primera vez. Para la Fase 4: repositorio en GitHub, proyecto en Vercel, una base de datos y una clave de API (Anthropic u OpenAI) con su facturación.
 
-**5. Limitaciones detectadas:** cada respuesta consume tu uso de Claude; si llegas al límite, las tareas se pausan y se pueden reanudar. PDF y Word se adjuntan pero no se leen.
+**5. Limitaciones detectadas:** cada respuesta consume tu uso de Claude; si llegas al límite, las tareas se pausan y se pueden reanudar. PDF y Word se leen en el navegador; los PDF de imágenes los transcribe la IA.
 
 **6. Siguiente paso recomendado:** usarla con un proyecto real durante unos días y, después, abrir el backend en Claude Code sobre tu GitHub y Vercel, empezando por la cola de trabajos con cron y la conexión a Gmail y Drive.`;
 

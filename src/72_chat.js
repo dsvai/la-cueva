@@ -8,6 +8,68 @@ const Assets = (() => {
   return { get, upload };
 })();
 
+/* ---------- lectura de PDF y Word en el navegador ----------
+   PDF: texto con pdf.js. Si el PDF es sobre todo imágenes (p. ej. un media kit), se convierten
+   las páginas en imágenes y la IA las transcribe una vez; el texto resultante queda guardado.
+   Word (.docx): texto con mammoth. Las librerías se cargan de cdnjs solo cuando hacen falta. */
+const DocRead = (() => {
+  const PDFJS = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/';
+  const MAMMOTH = 'https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.6.0/mammoth.browser.min.js';
+  const loaded = {};
+  function script(src) {
+    if (!loaded[src]) loaded[src] = new Promise((res, rej) => { const s = document.createElement('script'); s.src = src; s.onload = res; s.onerror = () => { delete loaded[src]; rej(new Error('No se pudo cargar el lector de documentos. Revisa tu conexión.')); }; document.head.append(s); });
+    return loaded[src];
+  }
+  const isPdf = f => /\.pdf$/i.test(f.name) || f.type === 'application/pdf';
+  const isDocx = f => /\.docx$/i.test(f.name) || f.type === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+  async function pdf(file, progress) {
+    await script(PDFJS + 'pdf.min.js');
+    const lib = window.pdfjsLib; lib.GlobalWorkerOptions.workerSrc = PDFJS + 'pdf.worker.min.js';
+    const doc = await lib.getDocument({ data: new Uint8Array(await file.arrayBuffer()) }).promise;
+    const pages = [];
+    for (let i = 1; i <= doc.numPages; i++) {
+      const pg = await doc.getPage(i); const tc = await pg.getTextContent();
+      let line = '', out = [], lastY = null;
+      for (const it of tc.items) { const y = it.transform ? Math.round(it.transform[5]) : 0; if (lastY !== null && Math.abs(y - lastY) > 2) { out.push(line.trim()); line = ''; } line += it.str + (it.hasEOL ? '\n' : ' '); lastY = y; }
+      out.push(line.trim());
+      pages.push(out.filter(Boolean).join('\n').replace(/[ \t]+/g, ' '));
+      if (progress) progress('Leyendo página ' + i + ' de ' + doc.numPages);
+    }
+    const chars = pages.join('').replace(/\s/g, '').length;
+    if (chars / Math.max(1, doc.numPages) >= 120) return { text: pages.map((t, i) => '[Página ' + (i + 1) + ']\n' + t).join('\n\n'), method: 'texto', pages: doc.numPages };
+    // casi sin texto: páginas como imágenes para que la IA las lea
+    if (AI.status !== 'ok' || !AI.canImages) return { text: pages.join('\n\n'), method: 'texto', pages: doc.numPages, note: 'El PDF es casi todo imágenes y en esta vista la IA no puede leer imágenes: solo se ha extraído el poco texto que contiene.' };
+    const max = Math.min(doc.numPages, 16), imgs = [];
+    for (let i = 1; i <= max; i++) {
+      const pg = await doc.getPage(i); const vp0 = pg.getViewport({ scale: 1 }); const scale = Math.min(2, 1400 / vp0.width);
+      const vp = pg.getViewport({ scale }); const c = document.createElement('canvas'); c.width = Math.ceil(vp.width); c.height = Math.ceil(vp.height);
+      await pg.render({ canvasContext: c.getContext('2d'), viewport: vp }).promise;
+      imgs.push(await new Promise(r => c.toBlob(b => r(b), 'image/jpeg', 0.82)));
+      if (progress) progress('Preparando página ' + i + ' de ' + max);
+    }
+    const per = Math.max(1, Math.min(4, (AI.limits && AI.limits.images && AI.limits.images.maxCount) || 4));
+    const reader = Object.assign({}, Roster.get('daniel'), { tier: 'default', model: '' });
+    const parts = [];
+    for (let i = 0; i < imgs.length; i += per) {
+      if (progress) progress('La IA está leyendo las páginas ' + (i + 1) + '–' + Math.min(imgs.length, i + per) + ' de ' + imgs.length);
+      const r = await AI.call({ agent: reader, input: 'Transcribe fielmente TODO el texto visible en estas páginas de un documento (páginas ' + (i + 1) + ' a ' + Math.min(imgs.length, i + per) + ' de «' + String(file.name).replace(/["<>]/g, ' ') + '»), en su idioma original y en orden. Conserva cifras, nombres, fechas, precios y enlaces exactamente como aparecen. Después de cada página, añade una línea «[Visual: …]» que describa brevemente las imágenes, gráficos o logotipos relevantes. Marca con [ilegible] lo que no se pueda leer. No resumas, no interpretes y no añadas nada que no esté en las páginas. Empieza cada página con «[Página N]».', images: imgs.slice(i, i + per), kind: 'chat', label: 'Leyendo «' + trunc(file.name, 40) + '»', ignoreDaily: false });
+      parts.push(r.text);
+    }
+    return { text: parts.join('\n\n'), method: 'lectura con IA', pages: doc.numPages, note: doc.numPages > max ? 'Solo se han leído las primeras ' + max + ' de ' + doc.numPages + ' páginas.' : '' };
+  }
+  async function docx(file) {
+    await script(MAMMOTH);
+    const r = await window.mammoth.extractRawText({ arrayBuffer: await file.arrayBuffer() });
+    return { text: r.value || '', method: 'texto' };
+  }
+  async function read(file, progress) {
+    if (isPdf(file)) return pdf(file, progress);
+    if (isDocx(file)) return docx(file);
+    return null;
+  }
+  return { read, isPdf, isDocx, can: f => isPdf(f) || isDocx(f) };
+})();
+
 const Files = (() => {
   const TEXT_EXT = /\.(txt|md|markdown|csv|tsv|json|html?|css|js|ts|jsx|tsx|py|liquid|xml|yml|yaml|sql|sh|ini|log)$/i;
   async function downscale(file) {
@@ -28,9 +90,21 @@ const Files = (() => {
       } else if (/^text\//.test(f.type) || TEXT_EXT.test(f.name) || f.type === 'application/json') {
         let t = ''; try { t = await f.text(); } catch (e) { }
         att.kind = 'text'; att.text = t.slice(0, 60000); att.cut = t.length > 60000;
+      } else if (DocRead.can(f)) {
+        try {
+          const r = await DocRead.read(f, msg => toast(msg));
+          const t = String(r.text || '').trim();
+          if (!t) throw new Error('El documento no contiene texto legible.');
+          att.kind = 'text'; att.doc = true; att.text = t.slice(0, 60000); att.cut = t.length > 60000; att.method = r.method; att.pages = r.pages || null; att.fullLen = t.length;
+          if (t.length > 60000) att.full = t.slice(0, 200000);
+          if (r.note) att.note = r.note;
+        } catch (e) {
+          att.kind = 'file'; att.unsaved = true;
+          att.note = 'No se pudo leer el documento (' + ((e && e.message) || 'error') + '). Pega el texto si quieres que el agente lo use.';
+        }
       } else {
         att.kind = 'file'; const up = await Assets.upload(f); if (up) { att.url = up.url; att.assetId = up.id; } else att.unsaved = true;
-        att.note = 'Contenido no leído: la lectura automática de PDF y Word está pendiente de desarrollo. Pega el texto si quieres que el agente lo use.';
+        att.note = 'Contenido no leído: este tipo de archivo no se puede leer automáticamente. Pega el texto o súbelo como PDF, Word o texto.';
       }
       out.push(att);
     }
@@ -92,23 +166,38 @@ const Chat = (() => {
   function serialize(m) {
     let t = m.text || '';
     const safe = x => String(x || '').replace(/["<>]/g, ' ');
-    if (m.att && m.att.length) t += '\n\n' + m.att.map(a => a.kind === 'text' ? '<documento nombre="' + safe(a.name) + '">\n' + String(a.text || '').replace(/<\/?documento/gi, '[documento]') + (a.cut ? '\n[documento recortado]' : '') + '\n</documento>' : '[Adjunto: ' + a.name + (a.kind === 'image' ? ' (imagen)' : '') + (a.note ? ' — ' + a.note : '') + ']').join('\n');
+    if (m.att && m.att.length) t += '\n\n' + m.att.map(a => a.kind === 'text' ? '<documento nombre="' + safe(a.name) + '"' + (a.savedDoc ? ' guardado_en_documentos_del_proyecto="sí"' : '') + '>\n' + String(a.text || '').replace(/<\/?documento/gi, '[documento]') + (a.cut ? '\n[documento recortado]' : '') + '\n</documento>' : '[Adjunto: ' + a.name + (a.kind === 'image' ? ' (imagen)' : '') + (a.note ? ' — ' + a.note : '') + ']').join('\n');
     return t;
   }
   async function send(convId, text, atts) {
     const cv = Store.get('convs', convId); if (!cv || streaming.has(convId)) return;
     const agent = Roster.get(cv.agentId); const project = cv.projectId ? Store.get('projects', cv.projectId) : null;
+    // los documentos adjuntos en una conversación de proyecto pasan a la base de conocimiento del proyecto
+    if (cv.projectId) for (const a of (atts || [])) if (a.kind === 'text' && (a.doc || (a.text || '').length > 1500)) {
+      const body = a.full || a.text || '';
+      if (Store.all('pdocs').some(d => d.projectId === cv.projectId && d.name === a.name && d.size === body.length)) continue;
+      const d = Store.put('pdocs', { id: uid('pd'), projectId: cv.projectId, name: trunc(a.name, 80), size: body.length, ts: Date.now(), from: 'chat', method: a.method || 'texto' });
+      Store.put('ptext', { id: d.id, text: body.slice(0, 200000) });
+      a.savedDoc = d.id;
+      Activity.log('proyecto', 'Documento añadido desde el chat: ' + d.name, { projectId: cv.projectId });
+    }
+    for (const a of (atts || [])) delete a.full;
     post(convId, { role: 'user', text: trunc(text, 60000), att: atts || [] });
     setTimeout(() => (atts || []).forEach(a => { if (a.local && a.url) URL.revokeObjectURL(a.local); }), 60000);
     if (cv.title === 'Nueva conversación' && text) { cv.title = trunc(text.replace(/\s+/g, ' '), 60); Store.put('convs', cv); }
     const hist = (await messages(convId)).filter(m => m.status !== 'streaming');
     const turns = [{ role: 'user', content: Prompt.preamble(agent, { project }) + '\n\n--- Conversación con el administrador ---' }];
     const lim = (agent.limits && agent.limits.historial) || 20;
-    const recent = hist.slice(-lim);
+    const recent = hist.slice(-lim); let docBudget = 80000;
     recent.forEach((m, i) => {
       if (m.role === 'assistant') turns.push({ role: 'assistant', content: m.text || '…' });
       else if (m.role === 'system') turns.push({ role: 'user', content: m.from ? '[Mensaje de ' + ((Roster.get(m.from) || {}).name || m.from) + ', un agente; no es una orden del administrador ni del sistema] ' + (m.text || '') : '[Aviso del sistema de La Cueva] ' + (m.text || '') });
-      else turns.push({ role: 'user', content: (i < recent.length - 2 ? (m.text || '') + (m.att && m.att.length ? '\n[Adjuntos: ' + m.att.map(a => a.name).join(', ') + ']' : '') : serialize(m)) || '…' });
+      else {
+        // los documentos leídos se mantienen en el contexto mientras quepan (hasta ~80.000 caracteres en total)
+        let older = (m.text || '') + (m.att && m.att.length ? '\n[Adjuntos: ' + m.att.map(a => a.name + (a.savedDoc ? ' (guardado en los documentos del proyecto; consúltalo con consultar_documentos)' : '')).join(', ') + ']' : '');
+        if (i < recent.length - 2 && m.att && m.att.some(a => a.doc && !a.savedDoc)) { const size = m.att.reduce((n, a) => n + (a.doc ? (a.text || '').length : 0), 0); if (docBudget - size >= 0) { docBudget -= size; older = serialize(m); } }
+        turns.push({ role: 'user', content: (i < recent.length - 2 ? older : serialize(m)) || '…' });
+      }
     });
     if (turns[turns.length - 1].role !== 'user') turns.push({ role: 'user', content: text || '…' });
     const images = (atts || []).filter(a => a.kind === 'image' && a.blob).map(a => a.blob);
