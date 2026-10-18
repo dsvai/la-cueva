@@ -29,6 +29,40 @@ const ARCH_MD = `## Cómo está construida esta versión
 
 Repositorio en GitHub y despliegue en Vercel con funciones de servidor, base de datos (por ejemplo Postgres), cola y cron para trabajo con la app cerrada, credenciales cifradas por proyecto, proveedores de IA configurables (Anthropic u OpenAI por API) e integraciones. Esta app pasa a ser el frontend y la copia de seguridad JSON sirve de migración.`;
 
+const ARCH_SERVER_MD = `## Cómo está construida esta versión (con backend)
+
+**Frontend:** la misma oficina pixel art, directorio, chat y paneles, servida por Vercel. Entras con tu contraseña de administrador; la sesión es una cookie protegida que el navegador no puede leer.
+
+**Servidor (Vercel Functions):** \`/api/session\` (acceso), \`/api/db\` (datos), \`/api/llm\` (un paso del modelo de IA), \`/api/worker\` (orquestador en segundo plano) y \`/api/health\` (estado). Las claves (IA, base de datos, contraseña) viven solo en variables de entorno de Vercel.
+
+**Datos:** Postgres. Cada colección de La Cueva es una tabla de documentos con versión. Las escrituras son parches (solo lo que cambia) aplicados en una transacción con bloqueo por documento, así tu navegador y el worker no se pisan: los contadores de consumo se suman y las listas (actividad, registros, mensajes) se añaden. Cada dispositivo sincroniza los cambios de los demás cada pocos segundos.
+
+**Orquestador:** el mismo código que en la versión de Claude, ejecutado en el servidor. Trabaja por tandas de hasta 5 minutos: deja de coger tareas antes del límite, devuelve a la cola lo que no termine y lanza la siguiente tanda mientras quede trabajo. Un contrato en la base de datos garantiza que solo un worker ejecute a la vez. Tu navegador avisa al worker cuando hay trabajo nuevo; un cron cada hora recoge programaciones y cualquier resto.
+
+**IA:** Anthropic API u OpenAI API con la clave del servidor. El bucle de herramientas se ejecuta donde están los datos (en tu navegador durante un chat, en el worker durante una tarea); el servidor solo hace cada paso del modelo. Consumo con tokens reales.
+
+## Decisiones de arquitectura
+
+**ADR-005 · Reutilizar el orquestador en el servidor.** Los módulos de datos, memoria, chat y orquestación se cargan tal cual en un contexto aislado de Node. *Consecuencia:* un único comportamiento en las dos versiones y las mismas pruebas.
+
+**ADR-006 · Tandas encadenadas en lugar de un proceso permanente.** El plan Hobby de Vercel limita cada función a 5 minutos y los crons a uno diario. *Consecuencia:* el trabajo largo se reparte en tandas; las programaciones se revisan con 24 crons diarios (uno por hora), con un margen de hasta una hora.
+
+**ADR-007 · Fusión por campos en lugar de bloqueo global.** Escritores concurrentes con parches y fusión a tres bandas. *Consecuencia:* si dos sitios cambian el mismo campo a la vez, gana el último; los contadores y las listas nunca se pierden.`;
+
+const NEXT_SERVER_MD = `## Informe de la Fase 4 (backend)
+
+**1. Implementado de verdad:** servidor en Vercel con acceso por contraseña, base de datos Postgres compartida entre dispositivos, IA por API (Anthropic u OpenAI) con la clave en el servidor, orquestador en segundo plano que trabaja con La Cueva cerrada, cron horario para programaciones y restos, sincronización entre tu navegador y el servidor, y migración desde la versión de Claude con la copia de seguridad.
+
+**2. Cómo probarlo:** pide a Daniel un trabajo para el equipo, apruébalo y cierra la pestaña. Vuelve en unos minutos: verás las tareas completadas y el informe de Daniel en su chat.
+
+**3. Prototipo o limitado:** las programaciones se revisan una vez por hora; una respuesta muy larga que supere los 5 minutos de una tanda se repite en la siguiente; las imágenes adjuntas no se guardan en el servidor.
+
+**4. Qué necesitas configurar:** en Vercel, la base de datos Neon y las variables ADMIN_PASSWORD, CRON_SECRET y ANTHROPIC_API_KEY (u OPENAI_API_KEY).
+
+**5. Limitaciones detectadas:** cada llamada de IA se factura en tu cuenta del proveedor (no en tu plan de Claude). El límite diario de llamadas de Ajustes protege de sustos.
+
+**6. Siguiente paso recomendado:** primera integración real (Gmail o Drive con OAuth propio y permisos por proyecto) y lectura de PDF y Word.`;
+
 const NEXT_MD = `## Informe de esta entrega
 
 **1. Implementado de verdad:** identidad de La Cueva con el logotipo oficial; oficina pixel art 2D con 12 espacios y 22 personajes únicos; navegación con WASD o flechas, ratón, zoom y directorio; chat real con todos los agentes (Markdown, código, adjuntos, herramientas, historial por proyecto); proyectos; orquestador con planes, tareas, colaboración, aprobaciones y límites; memoria operativa y normativa; fichas editables y contrataciones; panel de dirección con actividad y consumo reales; tareas programadas.

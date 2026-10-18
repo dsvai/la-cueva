@@ -2,7 +2,8 @@
    LA CUEVA · orquestador real
    Planes y tareas persistentes con estados, cola, dependencias, colaboración
    entre agentes, aprobaciones, límites, reintentos, pausa, cancelación y
-   recuperación tras una interrupción. Funciona mientras La Cueva está abierta.
+   recuperación tras una interrupción. En el artefacto avanza con La Cueva abierta;
+   con backend lo ejecuta el worker del servidor (también con la app cerrada).
    ============================================================ */
 const TS = {   // estados de tarea y su texto visible
   pendiente: 'Pendiente', en_cola: 'En cola', en_curso: 'Trabajando', esperando_colaboracion: 'Esperando colaboración',
@@ -15,7 +16,8 @@ const ACTIVE = new Set(['en_cola', 'en_curso', 'esperando_colaboracion', 'espera
 
 const Orch = (() => {
   const running = new Map();   // taskId -> {ctl, why}
-  let pumpTimer = null;
+  const consolidating = new Set();
+  let pumpTimer = null, hold = false;
 
   const T = id => Store.get('tasks', id);
   const P = id => Store.get('plans', id);
@@ -73,9 +75,9 @@ const Orch = (() => {
   function depsDone(t) { return (t.deps || []).every(d => { const x = T(d); return x && x.state === 'completada'; }); }
 
   /* ---------- bomba de la cola ---------- */
-  function schedulePump() { clearTimeout(pumpTimer); pumpTimer = setTimeout(pump, 60); }
+  function schedulePump() { clearTimeout(pumpTimer); pumpTimer = setTimeout(pump, 60); if (!Leader.is()) Bus.emit('orch:kick'); }
   function pump() {
-    if (!Leader.is()) return;
+    if (!Leader.is() || hold) return;
     const cfg = Config.get();
     const queued = Store.all('tasks').filter(t => t.state === 'en_cola' && (!t.planId || (P(t.planId) && P(t.planId).state === 'en_curso'))).sort((a, b) => a.createdAt - b.createdAt);
     for (const t of queued) {
@@ -151,6 +153,7 @@ const Orch = (() => {
       const t = T(id); if (!t) return;
       const why = running.get(id) && running.get(id).why;
       if (why === 'pause') setTask(t, { state: 'pausada' }, 'Pausada por ti');
+      else if (why === 'handoff') setTask(t, { state: 'en_cola', resume: t.resume || null }, 'Continuará en el siguiente turno del servidor');
       else if (why === 'cancel') setTask(t, { state: 'cancelada' }, 'Cancelada por ti');
       else if (why === 'timeout') setTask(t, { state: 'fallida', error: AI.copy('timeout') }, 'Fallida por tiempo');
       else if (e.code === 'rate_limited' || e.code === 'daily_limit') setTask(t, { state: 'pausada', error: e.message }, 'Pausada: ' + e.message);
@@ -219,12 +222,12 @@ const Orch = (() => {
     };
     if (ts.some(live)) return;
     if (ts.some(t => t.state === 'bloqueada' || t.state === 'fallida' || t.state === 'pausada' || t.state === 'interrumpida' || t.state === 'esperando_colaboracion')) { if (plan.state !== 'requiere_atencion') { plan.state = 'requiere_atencion'; Store.put('plans', plan); Activity.log('plan', 'El plan «' + plan.title + '» requiere tu atención', { planId: pid, projectId: plan.projectId }); } return; }
-    if (ts.every(t => t.state === 'completada' || t.state === 'cancelada')) consolidate(pid);
+    if (ts.every(t => t.state === 'completada' || t.state === 'cancelada')) { if (Leader.is()) consolidate(pid); else Bus.emit('orch:kick'); }
   }
   /* Daniel consolida y presenta el resultado */
   async function consolidate(pid, force) {
-    const plan = P(pid); if (!plan || plan.state === 'consolidando') return;
-    plan.state = 'consolidando'; Store.put('plans', plan); Bus.emit('orch');
+    const plan = P(pid); if (!plan || plan.state === 'consolidando' || consolidating.has(pid)) return;
+    plan.state = 'consolidando'; Store.put('plans', plan); Bus.emit('orch'); consolidating.add(pid);
     const daniel = Roster.get('daniel');
     const parts = ['Eres el director. El equipo ha terminado el plan «' + plan.title + '». Objetivo: ' + (plan.goal || '—') + '.', 'Resultados de cada tarea:'];
     for (const t of planTasks(pid).filter(x => x.depth === 0 || x.kind === 'sub')) {
@@ -246,7 +249,7 @@ const Orch = (() => {
     } catch (e) {
       plan.state = 'requiere_atencion'; plan.error = e.message; Store.put('plans', plan);
       Activity.log('error', 'No se pudo consolidar «' + plan.title + '»: ' + e.message, { planId: pid });
-    } finally { Activity.end(live); Bus.emit('orch'); }
+    } finally { consolidating.delete(pid); Activity.end(live); Bus.emit('orch'); }
   }
 
   /* ---------- acciones del administrador ---------- */
@@ -291,15 +294,34 @@ const Orch = (() => {
 
   /* ---------- recuperación al abrir ---------- */
   function recover() {
-    let n = 0;
-    for (const t of Store.all('tasks')) if (t.state === 'en_curso' && !running.has(t.id) && Date.now() - (t.heartbeat || 0) > 60000) { setTask(t, { state: 'interrumpida' }, 'Interrumpida: La Cueva se cerró mientras trabajaba'); n++; }
+    if (!Leader.is()) return 0;
+    let n = 0; const worker = LC_RUNTIME === 'worker';
+    for (const t of Store.all('tasks')) if (t.state === 'en_curso' && !running.has(t.id) && Date.now() - (t.heartbeat || 0) > 60000) {
+      // en el servidor, una tarea cortada (p. ej. por el límite de tiempo de la función) vuelve a la cola hasta 2 veces
+      if (worker && (t.recoveries || 0) < 2) setTask(t, { state: 'en_cola', recoveries: (t.recoveries || 0) + 1, resume: Store.get('tthread', t.id) ? 'retry' : (t.resume || null) }, 'Retomada por el servidor tras una interrupción');
+      else { setTask(t, { state: 'interrumpida' }, worker ? 'Interrumpida varias veces en el servidor' : 'Interrumpida: La Cueva se cerró mientras trabajaba'); n++; }
+    }
     for (const t of Store.all('tasks')) if (t.state === 'esperando_colaboracion' && (t.waitingOn || []).every(c => { const x = T(c); return x && TERMINAL.has(x.state); })) setTask(t, { state: 'en_cola', resume: 'collab' }, 'Colaboraciones recibidas');
-    for (const p of Store.all('plans')) if (p.state === 'consolidando') { p.state = 'requiere_atencion'; p.error = 'La consolidación se interrumpió.'; Store.put('plans', p); }
-    if (n) Activity.log('sistema', n + ' tarea(s) quedaron interrumpidas al cerrar La Cueva. Puedes reanudarlas.', {});
+    for (const p of Store.all('plans')) if (p.state === 'consolidando' && !consolidating.has(p.id)) {
+      if (worker) { p.state = 'en_curso'; Store.put('plans', p); }
+      else { p.state = 'requiere_atencion'; p.error = 'La consolidación se interrumpió.'; Store.put('plans', p); }
+    }
+    if (n) Activity.log('sistema', n + ' tarea(s) quedaron interrumpidas' + (worker ? ' en el servidor' : ' al cerrar La Cueva') + '. Puedes reanudarlas.', {});
     for (const p of Store.all('plans')) if (p.state === 'en_curso') checkPlan(p.id);
     schedulePump();
     return n;
   }
+  /* cambios hechos desde otro sitio (p. ej. pausar o cancelar desde el navegador mientras el servidor trabaja) */
+  function reconcile() {
+    for (const [id, r] of running) {
+      const t = T(id), plan = t && P(t.planId);
+      if (!t || t.state === 'cancelada' || (plan && plan.state === 'cancelado')) { if (!r.why) { r.why = 'cancel'; r.ctl.abort(); } }
+      else if (t.state === 'pausada' || (plan && plan.state === 'pausado')) { if (!r.why) { r.why = 'pause'; r.ctl.abort(); } }
+    }
+  }
+  function drain(why) { for (const r of running.values()) if (!r.why) { r.why = why || 'handoff'; r.ctl.abort(); } }
+  function setHold(v) { hold = !!v; }
+  function hasQueued() { return Store.all('tasks').some(t => t.state === 'en_cola' && (!t.planId || (P(t.planId) && P(t.planId).state === 'en_curso'))); }
   /* estado visible de cada agente según el trabajo real */
   const stCache = new Map(); let stAt = 0;
   Bus.on('store:tasks', () => stCache.clear()); Bus.on('store:plans', () => stCache.clear()); Bus.on('live', () => stCache.clear());
@@ -311,6 +333,7 @@ const Orch = (() => {
   function agentStatus0(id) {
     for (const l of Activity.live.values()) if (l.agentId === id) return { state: 'working', label: l.label || (l.kind === 'chat' ? 'Respondiendo en el chat' : 'Trabajando') };
     const ts = Store.all('tasks').filter(t => t.agentId === id);
+    const run = ts.find(t => t.state === 'en_curso'); if (run) return { state: 'working', label: run.title };
     const w = ts.find(t => t.state === 'esperando_aprobacion'); if (w) return { state: 'waiting', label: 'Espera tu aprobación: ' + w.title };
     const c = ts.find(t => t.state === 'esperando_colaboracion'); if (c) { const other = T((c.waitingOn || [])[0]); return { state: 'collab', label: 'Colaborando en ' + c.title, with: other && other.agentId, visitor: true }; }
     const helping = Store.all('tasks').find(t => t.state === 'esperando_colaboracion' && (t.waitingOn || []).some(x => { const y = T(x); return y && y.agentId === id && !TERMINAL.has(y.state); }));
@@ -320,7 +343,7 @@ const Orch = (() => {
     const q = ts.find(t => t.state === 'en_cola'); if (q) return { state: 'idle', label: 'Tarea en cola: ' + q.title, queued: true };
     return { state: 'idle', label: 'Disponible' };
   }
-  return { createPlan, approvePlan, startPlan, pausePlan, resumePlan, cancelPlan, finishReview, retryTask, reassign, cancelTask, requestApproval, decide, recover, agentStatus, consolidate, pump: schedulePump, running, planTasks, checkPlan };
+  return { createPlan, approvePlan, startPlan, pausePlan, resumePlan, cancelPlan, finishReview, retryTask, reassign, cancelTask, requestApproval, decide, recover, agentStatus, consolidate, pump: schedulePump, running, planTasks, checkPlan, reconcile, drain, setHold, hasQueued, get consolidating() { return consolidating; } };
 })();
 
 /* ============================================================
@@ -370,8 +393,8 @@ const Tools = (() => {
         ctx.planId = plan.id;
         return 'Plan creado (' + plan.id + ') con ' + plan.taskIds.length + ' tareas. Estado: ' + PS[plan.state] + '.' + (plan.state === 'pendiente_aprobacion' ? ' El administrador debe darle el visto bueno en la tarjeta del plan.' : ' Ya está en marcha.');
       });
-      add('programar_tarea', 'PROGRAMAR: crea una tarea recurrente o futura para un especialista. Solo si el administrador lo pide. Se ejecuta mientras La Cueva esté abierta.', S({ titulo: str('Título'), instrucciones: str('Qué debe hacer cada vez'), responsable: str('id del especialista'), frecuencia: { type: 'string', enum: ['una_vez', 'diaria', 'semanal', 'mensual'] }, hora: str('HH:MM'), dia_semana: { type: 'integer', description: '1=lunes … 7=domingo (semanal)' }, dia_mes: { type: 'integer', description: '1-28 (mensual)' }, fecha: str('AAAA-MM-DD (una vez)'), proyecto_id: str('id del proyecto, si aplica') }, ['titulo', 'instrucciones', 'responsable', 'frecuencia']), async i => {
-        const s = Sched.create(i, pid); return 'Programación creada: «' + s.title + '». Próxima ejecución: ' + (s.nextRun ? fmtDT(s.nextRun) : '—') + '. Importante: solo se ejecuta con La Cueva abierta.';
+      add('programar_tarea', 'PROGRAMAR: crea una tarea recurrente o futura para un especialista. Solo si el administrador lo pide. ' + (LC_SERVER ? 'La ejecuta el servidor aunque La Cueva esté cerrada (revisión cada hora).' : 'Se ejecuta mientras La Cueva esté abierta.'), S({ titulo: str('Título'), instrucciones: str('Qué debe hacer cada vez'), responsable: str('id del especialista'), frecuencia: { type: 'string', enum: ['una_vez', 'diaria', 'semanal', 'mensual'] }, hora: str('HH:MM'), dia_semana: { type: 'integer', description: '1=lunes … 7=domingo (semanal)' }, dia_mes: { type: 'integer', description: '1-28 (mensual)' }, fecha: str('AAAA-MM-DD (una vez)'), proyecto_id: str('id del proyecto, si aplica') }, ['titulo', 'instrucciones', 'responsable', 'frecuencia']), async i => {
+        const s = Sched.create(i, pid); return 'Programación creada: «' + s.title + '». Próxima ejecución: ' + (s.nextRun ? fmtDT(s.nextRun) : '—') + (LC_SERVER ? '. La ejecutará el servidor (se revisa cada hora, así que puede variar hasta una hora).' : '. Importante: solo se ejecuta con La Cueva abierta.');
       });
       add('proponer_contratacion', 'Propone contratar un nuevo agente digital. El administrador debe aprobarlo para crearlo y habilitarlo.', S({ nombre: str('Nombre'), cargo: str('Cargo'), departamento: { type: 'string', enum: DEPT_IDS }, especialidad: str('Especialidad'), personalidad: str('Personalidad'), instrucciones: str('Instrucciones del puesto'), motivo: str('Por qué hace falta') }, ['nombre', 'cargo', 'departamento', 'motivo']), async i => {
         const a = Orch.requestApproval({ kind: 'nuevo_agente', agentId: 'daniel', convId: ctx.convId, projectId: pid, title: 'Contratar a ' + i.nombre + ' (' + i.cargo + ')', details: String(i.motivo || ''), payload: { name: String(i.nombre), role: String(i.cargo), dept: DEPT_IDS.includes(i.departamento) ? i.departamento : 'MKT', specialty: String(i.especialidad || ''), personality: String(i.personalidad || ''), instructions: String(i.instrucciones || '') } });
@@ -456,7 +479,7 @@ const Sched = (() => {
       try {
         Orch.createPlan({ titulo: 'Programada: ' + s.title, objetivo: s.instructions, proyecto_id: s.projectId, tareas: [{ clave: 't1', titulo: s.title, instrucciones: s.instructions, responsable: s.agentId }] }, { projectId: s.projectId, createdBy: 'programacion', autoApprove: false, scheduleId: s.id, convId: Chat.ensureConv('daniel', s.projectId).id });
         Store.patch('schedules', s.id, { lastRun: now, runs: (s.runs || 0) + 1, nextRun: s.freq === 'una_vez' ? null : next(s, now), enabled: s.freq !== 'una_vez', lastLate: late });
-        Activity.log('programacion', 'Ejecutada «' + s.title + '»' + (late ? ' (con retraso: La Cueva estaba cerrada a su hora)' : ''), { agentId: s.agentId });
+        Activity.log('programacion', 'Ejecutada «' + s.title + '»' + (late ? (LC_SERVER ? ' (con retraso respecto a su hora)' : ' (con retraso: La Cueva estaba cerrada a su hora)') : ''), { agentId: s.agentId });
       } catch (e) { Store.patch('schedules', s.id, { error: e.message, enabled: false }); }
     }
   }

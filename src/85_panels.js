@@ -43,7 +43,7 @@ const Panels = (() => {
         const working = new Set([...Activity.live.values()].map(l => l.agentId));
         const pend = tasks.filter(x => ['pendiente', 'en_cola', 'en_curso', 'esperando_colaboracion', 'esperando_aprobacion'].includes(x.state)).length;
         const blocks = tasks.filter(x => ['bloqueada', 'fallida', 'interrumpida'].includes(x.state) && !['cancelado', 'completado'].includes((Store.get('plans', x.planId) || {}).state)).length;
-        b.innerHTML = '<div class="grid g4">' + kpi(Store.all('projects').filter(x => x.status === 'activo').length, 'Proyectos activos') + kpi(pend, 'Tareas abiertas') + kpi(working.size, 'Agentes trabajando ahora') + kpi(Store.all('approvals').filter(a => a.state === 'pendiente').length, 'Aprobaciones pendientes') + kpi(Store.all('deliverables').length, 'Entregables') + kpi(blocks, 'Bloqueos y fallos') + kpi(u.calls + ' / ' + cfg.dailyCalls, 'Llamadas de IA hoy', '≈ ' + fmtNum(u.inTok + u.outTok) + ' tokens (estimación)') + kpi(Store.all('schedules').filter(s => s.enabled).length, 'Programadas activas') + '</div>';
+        b.innerHTML = '<div class="grid g4">' + kpi(Store.all('projects').filter(x => x.status === 'activo').length, 'Proyectos activos') + kpi(pend, 'Tareas abiertas') + kpi(working.size, 'Agentes trabajando ahora') + kpi(Store.all('approvals').filter(a => a.state === 'pendiente').length, 'Aprobaciones pendientes') + kpi(Store.all('deliverables').length, 'Entregables') + kpi(blocks, 'Bloqueos y fallos') + kpi(u.calls + ' / ' + cfg.dailyCalls, 'Llamadas de IA hoy', (LC_SERVER ? '' : '≈ ') + fmtNum(u.inTok + u.outTok) + ' tokens' + (LC_SERVER ? '' : ' (estimación)')) + kpi(Store.all('schedules').filter(s => s.enabled).length, 'Programadas activas') + '</div>';
         // requiere atención
         b.append(h('<div class="sec-h">Requiere tu atención</div>'));
         const L = h('<div class="card list"></div>'); let n = 0;
@@ -73,7 +73,7 @@ const Panels = (() => {
       if (t === 'act') activityList(b, null);
       if (t === 'use') usage(b, null);
       if (t === 'sched') {
-        b.append(h('<div class="note">Las tareas programadas se ejecutan solo mientras La Cueva está abierta en algún dispositivo. Si estaba cerrada a su hora, se ejecutan al abrirla y quedan marcadas «con retraso». Para ejecución real con la app cerrada hace falta el backend de la Fase 4.</div>'));
+        b.append(h('<div class="note">' + (LC_SERVER ? 'Las tareas programadas las ejecuta el servidor aunque La Cueva esté cerrada. Se revisan una vez por hora (límite del plan Hobby de Vercel), así que pueden arrancar hasta una hora más tarde de lo indicado. Cada ejecución crea un plan que respeta tu visto bueno si lo tienes activado.' : 'Las tareas programadas se ejecutan solo mientras La Cueva está abierta en algún dispositivo. Si estaba cerrada a su hora, se ejecutan al abrirla y quedan marcadas «con retraso». Para ejecución real con la app cerrada hace falta el backend de la Fase 4.') + '</div>'));
         const ss = Store.all('schedules');
         if (!ss.length) { b.append(h(empty('Nada programado', 'Pide a Daniel algo recurrente, por ejemplo: «cada lunes a las 9, que Luna prepare las ideas de contenido de la semana».'))); return; }
         const L = h('<div class="card list" style="margin-top:12px"></div>');
@@ -104,7 +104,7 @@ const Panels = (() => {
     for (const d of days) { for (const [k, v] of Object.entries(d.byProject || {})) { if (pid !== null && k !== pid) continue; const x = byP[k] || (byP[k] = { calls: 0, tok: 0 }); x.calls += v.calls; x.tok += v.inTok + v.outTok; } if (pid === null) { tot.calls += d.calls; tot.tok += d.inTok + d.outTok; for (const [k, v] of Object.entries(d.byAgent || {})) { const x = byA[k] || (byA[k] = { calls: 0, tok: 0, inTok: 0, outTok: 0 }); x.calls += v.calls; x.tok += v.inTok + v.outTok; x.inTok += v.inTok; x.outTok += v.outTok; } } }
     if (pid !== null) { const x = byP[pid] || { calls: 0, tok: 0 }; tot.calls = x.calls; tot.tok = x.tok; }
     const price = (parseFloat(cfg.priceIn) || 0) > 0 || (parseFloat(cfg.priceOut) || 0) > 0;
-    b.append(h('<div class="note">Las llamadas se cuentan exactamente; los tokens son una <b>estimación</b> a partir del texto enviado y recibido. Ahora la IA usa tu plan de Claude, así que no hay coste por llamada. Si en la Fase 4 conectas una API de pago, define el precio en Ajustes para ver el coste estimado.</div>'));
+    b.append(h('<div class="note">' + (LC_SERVER ? 'Las llamadas y los tokens son los que devuelve el proveedor de IA (en conversaciones antiguas pueden ser estimados). Cada llamada se factura en tu cuenta de Anthropic u OpenAI: define el precio por millón de tokens en Ajustes para ver el coste estimado.' : 'Las llamadas se cuentan exactamente; los tokens son una <b>estimación</b> a partir del texto enviado y recibido. Ahora la IA usa tu plan de Claude, así que no hay coste por llamada. Si en la Fase 4 conectas una API de pago, define el precio en Ajustes para ver el coste estimado.') + '</div>'));
     const g = h('<div class="grid g4" style="margin-top:12px"></div>'); g.innerHTML = kpi(tot.calls, 'Llamadas (30 días)') + kpi('≈ ' + fmtNum(tot.tok), 'Tokens estimados') + (price ? kpi('≈ ' + (tot.tok / 1e6 * ((parseFloat(cfg.priceIn) || 0) * .7 + (parseFloat(cfg.priceOut) || 0) * .3)).toFixed(2) + ' €', 'Coste estimado') : kpi('—', 'Coste', 'Sin precio configurado')); b.append(g);
     if (days.length) {
       b.append(h('<div class="sec-h">Llamadas por día</div>'));
@@ -291,15 +291,26 @@ const Panels = (() => {
   function integrations() {
     const p = shell('Integraciones', 'Estado real de cada conexión. Ninguna se marca como disponible si no existe un mecanismo que funcione hoy.', false);
     const b = p.querySelector('.pbody');
-    b.append(h('<div class="note">Las credenciales de servicios externos deben guardarse en un servidor, nunca en el navegador. Por eso las integraciones de terceros llegan con el backend de la Fase 4 (GitHub + Vercel), asignadas a proyectos y agentes concretos, sin mezclar cuentas de clientes.</div>'));
+    b.append(h('<div class="note">' + (LC_SERVER ? 'El backend ya está activo: las claves viven solo en las variables de entorno de Vercel y nunca llegan al navegador. Las integraciones de terceros se irán conectando sobre él, asignadas a proyectos y agentes concretos y sin mezclar cuentas de clientes. Hasta que cada una tenga un mecanismo real, aparece como pendiente.' : 'Las credenciales de servicios externos deben guardarse en un servidor, nunca en el navegador. Por eso las integraciones de terceros llegan con el backend de la Fase 4 (GitHub + Vercel), asignadas a proyectos y agentes concretos, sin mezclar cuentas de clientes.') + '</div>'));
     const g = h('<div class="grid g2" style="margin-top:12px"></div>');
     for (const i of INTEGRATIONS) {
-      const okNow = i.id === 'claude' ? AI.status === 'ok' : false;
+      if (LC_SERVER && i.id === 'claude') continue;
+      const okNow = i.id === 'claude' ? AI.status === 'ok' : (LC_SERVER && i.id === 'openai' ? AI.provider === 'openai' : false);
       const c = h('<div class="card"><div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"><b style="font-family:var(--f-display);font-size:var(--t-m);flex:1"></b><span class="chip"></span></div><div class="hint" style="margin-top:6px"></div><div style="margin-top:6px;font-size:var(--t-s)"></div></div>');
       c.querySelector('b').textContent = i.name; const ch = c.querySelector('.chip');
-      if (i.id === 'claude') { ch.className = 'chip ' + (okNow ? 'ok' : 'warn'); ch.textContent = okNow ? 'Operativa' : 'Pendiente de configuración'; } else { ch.className = 'chip plain'; ch.textContent = 'Pendiente de desarrollo'; }
-      c.querySelector('.hint').textContent = i.how; if (i.need) c.lastElementChild.innerHTML = '<b>Qué hace falta:</b> ' + esc(i.need); else c.lastElementChild.remove();
+      if (i.id === 'claude') { ch.className = 'chip ' + (okNow ? 'ok' : 'warn'); ch.textContent = okNow ? 'Operativa' : 'Pendiente de configuración'; }
+      else if (LC_SERVER && i.id === 'openai') { ch.className = 'chip ' + (okNow ? 'ok' : 'warn'); ch.textContent = okNow ? 'Operativa' : 'Implementada, pendiente de configuración'; }
+      else { ch.className = 'chip plain'; ch.textContent = 'Pendiente de desarrollo'; }
+      c.querySelector('.hint').textContent = LC_SERVER && i.id === 'openai' ? (okNow ? 'Los agentes usan OpenAI API desde el servidor con la clave guardada en Vercel.' : 'El servidor ya sabe usar OpenAI API: basta con crear la variable OPENAI_API_KEY en Vercel (y AI_PROVIDER=openai si también tienes clave de Anthropic).') : i.how;
+      const need = LC_SERVER && i.id === 'openai' ? (okNow ? '' : 'Clave de OpenAI API con facturación en platform.openai.com. Una suscripción a ChatGPT no da acceso a la API.') : i.need; if (need) c.lastElementChild.innerHTML = '<b>Qué hace falta:</b> ' + esc(need); else c.lastElementChild.remove();
       g.append(c);
+    }
+    if (LC_SERVER) {
+      const okA = AI.provider === 'anthropic';
+      const c = h('<div class="card"><div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"><b style="font-family:var(--f-display);font-size:var(--t-m);flex:1">Anthropic API (Claude)</b><span class="chip"></span></div><div class="hint" style="margin-top:6px"></div></div>');
+      const ch = c.querySelector('.chip'); ch.className = 'chip ' + (okA ? 'ok' : 'warn'); ch.textContent = okA ? 'Operativa' : 'Implementada, pendiente de configuración';
+      c.querySelector('.hint').textContent = okA ? 'Los agentes usan Claude por API desde el servidor, con la clave guardada en Vercel. Se factura en console.anthropic.com, aparte de tu plan de Claude.' : 'Crea la variable ANTHROPIC_API_KEY en Vercel para usar Claude por API. Es una facturación aparte de tu suscripción a Claude.';
+      g.prepend(c);
     }
     b.append(g);
   }
@@ -309,6 +320,7 @@ const Panels = (() => {
   function status() {
     const p = shell('Estado del sistema', 'Qué funciona de verdad, qué está limitado y qué falta, con la comprobación hecha en este momento.', true);
     tabsInto(p, [['feat', 'Funcionalidades'], ['arch', 'Arquitectura'], ['next', 'Siguiente fase']], 'status', (t, b) => {
+      if (t === 'feat' && LC_SERVER) { serverStatus(b); return; }
       if (t === 'feat') {
         const ai = AI.status === 'ok', db = Store.mode === 'db';
         const rows = [
@@ -345,10 +357,50 @@ const Panels = (() => {
         b.append(ck);
       }
       if (t === 'arch') {
-        b.append(h('<div class="md doc">' + md(ARCH_MD) + '</div>'));
+        b.append(h('<div class="md doc">' + md(LC_SERVER ? ARCH_SERVER_MD : ARCH_MD) + '</div>'));
       }
-      if (t === 'next') b.append(h('<div class="md doc">' + md(NEXT_MD) + '</div>'));
+      if (t === 'next') b.append(h('<div class="md doc">' + md(LC_SERVER ? NEXT_SERVER_MD : NEXT_MD) + '</div>'));
     });
+  }
+
+  /* estado real con backend: se consulta al servidor en el momento */
+  async function serverStatus(b) {
+    const ai = AI.status === 'ok', prov = ({ anthropic: 'Anthropic API', openai: 'OpenAI API', mock: 'simulador de pruebas' }[AI.provider] || 'la API configurada');
+    b.append(h('<div class="hint">Comprobando el servidor…</div>'));
+    let hs = null; try { hs = await window.LCServer.health(); } catch (e) { hs = null; }
+    b.innerHTML = '';
+    const w = hs && hs.worker;
+    const rows = [
+      ['Oficina pixel art, 12 espacios y 22 personajes únicos', 'op', 'Mapa continuo con pasillos; WASD o flechas, ratón, zoom, directorio.'],
+      ['Estados visibles de cada agente', 'op', 'Según tareas reales del servidor y de tus chats. Los descansos son ambientales y nunca simulan trabajo.'],
+      ['Acceso privado con contraseña', hs && hs.password ? 'op' : 'cfg', 'Sesión con cookie protegida; la contraseña vive solo en Vercel (ADMIN_PASSWORD).'],
+      ['Base de datos en el servidor', hs && hs.db ? 'op' : 'cfg', hs && hs.db ? 'Postgres: proyectos, chats, tareas, memoria y entregables, compartidos entre tus dispositivos.' : ((hs && hs.dbError) || 'Falta conectar la base de datos.')],
+      ['Chat real con los agentes', ai ? 'op' : 'cfg', ai ? 'Responden con ' + prov + ' desde el servidor. Markdown, código, adjuntos de texto e imágenes, herramientas.' : 'Falta la clave de IA en Vercel (ANTHROPIC_API_KEY u OPENAI_API_KEY).'],
+      ['Orquestador en segundo plano', ai && hs && hs.db ? 'op' : 'cfg', 'Lo ejecuta el servidor por tandas de hasta 5 minutos que se encadenan mientras queda trabajo: puedes cerrar La Cueva.' + (w ? ' Última tanda: ' + fmtDT(Date.parse(w.endedAt || w.startedAt)) + ' · ' + (w.reason || '') + '.' : ' Aún no ha trabajado ninguna tanda.')],
+      ['Tareas programadas', hs && hs.cronSecret ? 'lim' : 'cfg', hs && hs.cronSecret ? 'Las ejecuta el servidor con La Cueva cerrada. Limitación del plan Hobby: se revisan una vez por hora (±1 h).' : 'Falta la variable CRON_SECRET en Vercel para que el cron horario pueda despertar al servidor.'],
+      ['Aprobaciones de acciones sensibles', 'op', 'Aprobar no ejecuta nada externo: todavía no hay integraciones de terceros.'],
+      ['Memoria normativa y operativa', 'op', 'Reglas supervisadas por ámbitos y memoria aislada por proyecto. Las reglas no pueden tocar permisos.'],
+      ['Recuperación de contexto', 'lim', 'Por palabras clave. Búsqueda semántica: pendiente.'],
+      ['Consumo y costes', 'op', 'Llamadas y tokens reales que devuelve el proveedor. Coste en euros si configuras el precio en Ajustes.'],
+      ['Adjuntos', 'lim', 'Imágenes y archivos de texto se envían a la IA; las imágenes no se guardan en el servidor tras la conversación. PDF y Word: pendiente.'],
+      ['Integraciones externas (Gmail, Drive, Shopify, Meta, Google…)', 'dev', 'El servidor ya guarda credenciales de forma segura; cada integración se añadirá con permisos por proyecto y aprobación para acciones sensibles.'],
+      ['Voz y reuniones visibles entre agentes', 'dev', 'Fase 5.'],
+      ['Varios usuarios', 'dev', 'Hoy hay un único administrador.']
+    ];
+    const tb = h('<div class="tblw"><table class="tbl"><thead><tr><th>Funcionalidad</th><th>Estado</th><th>Detalle</th></tr></thead><tbody></tbody></table></div>');
+    for (const [n, c, d] of rows) { const r = h('<tr><td style="font-weight:600"></td><td></td><td></td></tr>'); r.children[0].textContent = n; r.children[1].innerHTML = '<span class="chip ' + CLS[c][0] + '">' + CLS[c][1] + '</span>'; r.children[2].textContent = d; tb.querySelector('tbody').append(r); }
+    b.append(tb);
+    b.append(h('<div class="sec-h">Comprobaciones del servidor</div>'));
+    const ck = h('<div class="card list"></div>');
+    const L = (k, v, ok) => { const li = h('<div class="li"><div class="grow"><b></b></div><span class="chip"></span></div>'); li.querySelector('b').textContent = k; const c = li.querySelector('.chip'); c.textContent = v; c.className = 'chip ' + (ok ? 'ok' : 'warn'); ck.append(li); };
+    L('Servidor', hs ? 'Responde (' + (hs.env || '—') + (hs.region ? ', ' + hs.region : '') + ')' : 'Sin respuesta', !!hs);
+    L('Base de datos', hs && hs.db ? 'Conectada' : 'No disponible', !!(hs && hs.db));
+    L('Proveedor de IA', hs && hs.ai && hs.ai.provider ? prov : 'Sin configurar', !!(hs && hs.ai && hs.ai.provider));
+    if (hs && hs.ai && hs.ai.models) L('Modelos por nivel', 'Rápido: ' + hs.ai.models.quick + ' · Equilibrado: ' + hs.ai.models.default + ' · Avanzado: ' + hs.ai.models.complex, true);
+    L('Cron horario (CRON_SECRET)', hs && hs.cronSecret ? 'Configurado' : 'Falta', !!(hs && hs.cronSecret));
+    L('Sincronización con el servidor', window.LCServer.syncError ? 'Con errores: ' + (window.LCServer.syncError.message || 'reintentando') : 'Al día', !window.LCServer.syncError);
+    L('Escrituras pendientes de guardar', String(Store.pending()), Store.pending() === 0);
+    b.append(ck);
   }
 
   /* ================= AJUSTES ================= */
@@ -358,7 +410,7 @@ const Panels = (() => {
     const b = p.querySelector('.pbody'); const c = Config.get();
     const f = h('<form class="form"></form>');
     f.innerHTML = '<div class="sec-h" style="margin-top:0">Ejecución y límites</div>' +
-      '<label class="chk"><input type="checkbox" name="planApproval"> <span><b>Los planes de Daniel esperan mi visto bueno antes de empezar</b><br><span class="hint">Recomendado: cada tarea consume tu uso de Claude.</span></span></label>' +
+      '<label class="chk"><input type="checkbox" name="planApproval"> <span><b>Los planes de Daniel esperan mi visto bueno antes de empezar</b><br><span class="hint">Recomendado: cada tarea ' + (LC_SERVER ? 'se factura en tu cuenta del proveedor de IA' : 'consume tu uso de Claude') + '.</span></span></label>' +
       '<div class="f2"><label class="f">Tareas a la vez<select name="concurrency"><option>1</option><option>2</option><option>3</option></select></label><label class="f">Llamadas de IA al día (tope)<input name="dailyCalls" type="number" min="10" max="2000"></label><label class="f">Máximo de tareas por plan<input name="maxTasksPlan" type="number" min="1" max="12"></label><label class="f">Máximo de llamadas por plan<input name="maxCallsPlan" type="number" min="5" max="200"></label><label class="f">Profundidad de delegación<select name="maxDepth"><option value="1">1 · sin colaboraciones encadenadas</option><option value="2">2 · una colaboración por nivel</option></select></label></div>' +
       '<div class="sec-h">Oficina</div><label class="chk"><input type="checkbox" name="showNames"> Mostrar nombres sobre los personajes</label><label class="chk"><input type="checkbox" name="ambient"> Vida ambiental: los agentes disponibles hacen pausas para el café o el sofá (nunca simulan trabajar)</label>' +
       '<div class="sec-h">Costes (para una API de pago futura)</div><div class="f2"><label class="f">€ por millón de tokens de entrada<input name="priceIn" inputmode="decimal" placeholder="vacío = sin coste"></label><label class="f">€ por millón de tokens de salida<input name="priceOut" inputmode="decimal" placeholder="vacío = sin coste"></label></div>';
@@ -372,8 +424,14 @@ const Panels = (() => {
     b.append(h('<div class="sec-h">Identidad</div>'));
     b.append(h('<div class="card" style="display:flex;gap:16px;align-items:center;flex-wrap:wrap"><img alt="Logotipo de La Cueva" style="height:44px"><span class="hint">Logotipo oficial de La Cueva by Daniel, integrado en la cabecera y en la recepción de la oficina.</span></div>'));
     b.lastElementChild.querySelector('img').src = LOGO_SRC;
+    if (LC_SERVER) {
+      b.append(h('<div class="sec-h">Sesión</div>'));
+      const ss = h('<div class="card" style="display:flex;gap:12px;align-items:center;flex-wrap:wrap"><span class="hint" style="flex:1">Has entrado con la contraseña de administrador. Para cambiarla, edita ADMIN_PASSWORD en Vercel: se cerrarán todas las sesiones.</span><button class="btn sec">Cerrar sesión</button></div>');
+      ss.querySelector('.btn').onclick = () => window.LCServer.logout();
+      b.append(ss);
+    }
     b.append(h('<div class="sec-h">Copia de seguridad</div>'));
-    const bk = h('<div class="card"><div class="hint" style="margin-bottom:8px">Descarga todos tus datos (proyectos, conversaciones, tareas, entregables, memoria y plantilla) en un archivo JSON. También sirve para migrar al backend en la Fase 4.</div><div class="toolbar"><button class="btn sec">Descargar copia</button><label class="btn ghost">Restaurar desde archivo<input type="file" accept=".json" hidden></label></div></div>');
+    const bk = h('<div class="card"><div class="hint" style="margin-bottom:8px">' + (LC_SERVER ? 'Descarga todos tus datos en un archivo JSON. Para traer lo que tenías en la versión dentro de Claude: descarga allí la copia y restáurala aquí.' : 'Descarga todos tus datos (proyectos, conversaciones, tareas, entregables, memoria y plantilla) en un archivo JSON. También sirve para migrar al backend en la Fase 4.') + '</div><div class="toolbar"><button class="btn sec">Descargar copia</button><label class="btn ghost">Restaurar desde archivo<input type="file" accept=".json" hidden></label></div></div>');
     bk.querySelector('.btn').onclick = async () => { const data = await Store.exportAll(); Dl.save('la-cueva-copia-' + dayKey() + '.json', JSON.stringify(data, null, 2)); };
     bk.querySelector('input').onchange = async e => { const fl = e.target.files[0]; if (!fl) return; try { const j = JSON.parse(await fl.text()); confirmBox('¿Restaurar esta copia?', 'Se añadirán o sobrescribirán los elementos con el mismo identificador. No se borra nada que no esté en la copia.', 'Restaurar copia', async () => { const r = await Store.importAll(j); toast('Copia restaurada: ' + r.n + ' elementos' + (r.skipped ? ' (' + r.skipped + ' descartados por no ser válidos)' : '')); View.setAgents(Roster.enabled()); }); } catch (er) { toast('El archivo no es una copia válida de La Cueva.', true); } };
     b.append(bk);
@@ -405,7 +463,7 @@ const Panels = (() => {
       }
       if (t === 'comp') { const f = h('<div class="form"><label class="f">Personalidad<textarea data-k="personality"></textarea></label><label class="f">Instrucciones de comportamiento<textarea data-k="instructions" style="min-height:160px"></textarea></label><div class="note">Estas instrucciones se suman a las reglas de honestidad y seguridad de La Cueva, que no se pueden desactivar.</div></div>'); bind(f, draft); b.append(f, bar); }
       if (t === 'modelo') {
-        const f = h('<div class="form"><label class="f">Nivel de modelo<select data-k="tier"><option value="quick">Rápido · respuestas breves y tareas sencillas</option><option value="default">Equilibrado · uso general</option><option value="complex">Razonamiento avanzado · estrategia y problemas difíciles</option></select></label><label class="f">Modelo concreto (opcional)<input data-k="model" placeholder="Vacío = el mejor disponible para el nivel elegido"></label><div class="note">La Cueva no fija nombres de modelos: el nivel elige automáticamente el modelo vigente de Claude disponible en tu cuenta. Si escribes un identificador concreto y no está disponible, se usa el nivel elegido. Cuando exista el backend, aquí podrás elegir también otro proveedor.</div><div class="f2"><label class="f">Duración máxima por respuesta (segundos)<input type="number" min="60" max="900" data-lk="maxDurSeg"></label><label class="f">Mensajes de historial que recuerda<input type="number" min="4" max="60" data-lk="historial"></label></div></div>');
+        const f = h('<div class="form"><label class="f">Nivel de modelo<select data-k="tier"><option value="quick">Rápido · respuestas breves y tareas sencillas</option><option value="default">Equilibrado · uso general</option><option value="complex">Razonamiento avanzado · estrategia y problemas difíciles</option></select></label><label class="f">Modelo concreto (opcional)<input data-k="model" placeholder="Vacío = el mejor disponible para el nivel elegido"></label><div class="note">' + (LC_SERVER ? 'En el servidor, cada nivel usa el modelo configurado en Vercel para el proveedor activo (puedes cambiarlo con las variables ANTHROPIC_MODEL_QUICK/DEFAULT/COMPLEX u OPENAI_MODEL_*). Si escribes un identificador concreto y no existe, se usa el del nivel.' : 'La Cueva no fija nombres de modelos: el nivel elige automáticamente el modelo vigente de Claude disponible en tu cuenta. Si escribes un identificador concreto y no está disponible, se usa el nivel elegido. Cuando exista el backend, aquí podrás elegir también otro proveedor.') + '</div><div class="f2"><label class="f">Duración máxima por respuesta (segundos)<input type="number" min="60" max="900" data-lk="maxDurSeg"></label><label class="f">Mensajes de historial que recuerda<input type="number" min="4" max="60" data-lk="historial"></label></div></div>');
         bind(f, draft); b.append(f, bar);
       }
       if (t === 'perm') {

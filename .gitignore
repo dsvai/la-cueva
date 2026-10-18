@@ -1,4 +1,7 @@
 node_modules/
 dist/
+public/
 test/*.png
 test/*.html
+.vercel
+.env*

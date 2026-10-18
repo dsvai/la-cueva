@@ -22,6 +22,7 @@ const Store = (() => {
     } catch (e) { db = null; }
     if (db) {
       mode = 'db';
+      if (db.onRemote) db.onRemote(ingest, (c, id) => !!(mem[c] && mem[c].has(id)));
       const days = []; for (let i = 0; i < 30; i++) days.push(dayKey(Date.now() - i * 86400000));
       for (const c of EAGER.concat(DAILY)) {
         let ok = false;
@@ -32,14 +33,14 @@ const Store = (() => {
             ok = true;
           } catch (e) {
             lastError = e; console.warn('carga', c, e);
-            if (e && (e.code === 'not_granted' || e.code === 'revoked')) { db = null; mode = useLocal() ? 'local' : 'memory'; break; }
+            if (e && (e.code === 'not_granted' || e.code === 'revoked') && !db.remote) { db = null; mode = useLocal() ? 'local' : 'memory'; break; }
             await sleep(600);
           }
         }
         if (!db) break;
         if (!ok) failed.add(c);   // no se escribe en una colección que no se pudo leer, para no sobrescribirla
       }
-    } else if (useLocal()) mode = 'local';
+    } else if (!LC_SERVER && useLocal()) mode = 'local';
     if (mode === 'local') {
       for (let i = 0; i < localStorage.length; i++) {
         const k = localStorage.key(i); if (!k || !k.startsWith('lc:')) continue;
@@ -120,6 +121,31 @@ const Store = (() => {
     } catch (e) { lastError = e; }
     return all(c).filter(v => v[field] === value);
   }
+  /* cambios hechos por otro escritor (worker o navegador): fusión a tres bandas en el sitio,
+     para que quien tenga una referencia al objeto vea los datos nuevos */
+  function deq(a, b) {
+    if (a === b) return true;
+    if (a == null || b == null || typeof a !== 'object' || typeof b !== 'object') return a === b || (a == null && b == null);
+    if (Array.isArray(a) !== Array.isArray(b)) return false;
+    if (Array.isArray(a)) { if (a.length !== b.length) return false; for (let i = 0; i < a.length; i++) if (!deq(a[i], b[i])) return false; return true; }
+    const ka = Object.keys(a).filter(k => a[k] !== undefined), kb = Object.keys(b).filter(k => b[k] !== undefined);
+    if (ka.length !== kb.length) return false;
+    for (const k of ka) if (!deq(a[k], b[k])) return false;
+    return true;
+  }
+  function ingest(c, id, remote, base) {
+    if (!mem[c]) return;
+    const local = mem[c].get(id);
+    if (remote === null) { if (local && !queue.has(c + '/' + id)) { mem[c].delete(id); emit(c); } return; }
+    if (!local) { if (LAZY.includes(c)) return; mem[c].set(id, remote); emit(c); return; }
+    base = base || {};
+    for (const k of new Set(Object.keys(local).concat(Object.keys(remote), Object.keys(base)))) {
+      if (deq(local[k], base[k])) { if (remote[k] === undefined) delete local[k]; else local[k] = remote[k]; }
+    }
+    const job = queue.get(c + '/' + id); if (job && job.obj) job.obj = fit(c, JSON.parse(JSON.stringify(local)));
+    emit(c); Bus.emit('store:remote', { c, id });
+  }
+  async function flush(ms) { const end = Date.now() + (ms || 10000); while ((queue.size || pumping) && Date.now() < end) await sleep(100); return !(queue.size || pumping); }
   function pending() { return queue.size + (pumping ? 1 : 0); }
   /* copia de seguridad completa (incluye textos ya cargados) */
   async function exportAll() {
@@ -143,8 +169,8 @@ const Store = (() => {
     }
     return { n, skipped };
   }
-  window.addEventListener('beforeunload', e => { if (queue.size || pumping) { e.preventDefault(); e.returnValue = ''; } });
-  return { init, all, get, put, patch, del, load, loadWhere, pending, exportAll, importAll, get mode() { return mode; }, get lastError() { return lastError; }, get db() { return db; } };
+  if (window.addEventListener) window.addEventListener('beforeunload', e => { if (queue.size || pumping) { e.preventDefault(); e.returnValue = ''; } });
+  return { init, all, get, put, patch, del, load, loadWhere, pending, flush, ingest, exportAll, importAll, get mode() { return mode; }, get lastError() { return lastError; }, get db() { return db; } };
 })();
 
 /* ---------- registro de actividad real y consumo ---------- */
@@ -171,13 +197,21 @@ const Activity = (() => {
 })();
 
 /* ---------- una sola pestaña o dispositivo ejecuta la cola (contrato temporal en la base de datos) ---------- */
+/* En el artefacto: la pestaña que tenga el contrato ejecuta la cola. Con backend: solo el worker
+   del servidor ejecuta (el navegador observa y le avisa); si no puede confirmar el contrato, no ejecuta. */
 const Leader = (() => {
-  const me = uid('tab'); let lead = true, ref = null, timer = null;
+  const me = uid(LC_RUNTIME === 'worker' ? 'wk' : 'tab'); let lead = !LC_SERVER, ref = null, timer = null;
   async function beat() {
-    const db = Store.db; if (!db) { lead = true; return; }
-    try { ref = ref || db.collection('locks').doc('orquestador'); const r = await ref.acquire({ holder: me, ttlMs: 45000 }); const was = lead; lead = !!r.acquired; if (lead && !was) { Bus.emit('leader', true); Orch.recover(); Orch.pump(); } if (!lead && was) Bus.emit('leader', false); }
-    catch (e) { lead = true; }
+    const db = Store.db; if (!db) { lead = !LC_SERVER; return lead; }
+    if (db.observer) { lead = false; return lead; }
+    const was = lead;
+    try { ref = ref || db.collection('locks').doc('orquestador'); const r = await ref.acquire({ holder: me, ttlMs: 45000 }); lead = !!r.acquired; }
+    catch (e) { lead = !db.strictLease; }
+    if (lead && !was) { Bus.emit('leader', true); Orch.recover(); Orch.pump(); }
+    if (!lead && was) Bus.emit('leader', false);
+    return lead;
   }
-  function start() { beat(); clearInterval(timer); timer = setInterval(beat, 20000); }
-  return { start, is: () => lead, get id() { return me; } };
+  function start() { clearInterval(timer); timer = setInterval(beat, 20000); return beat(); }
+  async function stop() { clearInterval(timer); const had = lead; lead = false; if (had && ref && ref.release) { try { await ref.release({ holder: me }); } catch (e) { } } }
+  return { start, stop, is: () => lead, get id() { return me; } };
 })();

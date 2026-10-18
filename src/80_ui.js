@@ -169,8 +169,9 @@ const UI = (() => {
     const ai = $('#p-ai'), dbp = $('#p-db');
     ai.className = 'pill' + (AI.status === 'ok' ? '' : ' bad'); ai.querySelector('span').textContent = AI.status === 'ok' ? 'IA activa' : AI.status === 'checking' ? 'IA…' : 'IA no disponible';
     const m = Store.mode; dbp.className = 'pill' + (m === 'db' ? '' : m === 'local' ? ' warn' : ' bad'); dbp.querySelector('span').textContent = m === 'db' ? 'Datos guardados' : m === 'local' ? 'Solo este navegador' : 'Sin guardar';
-    ai.title = AI.status === 'ok' ? 'Los agentes responden con Claude usando tu sesión' : 'Abre La Cueva dentro de Claude con tu sesión iniciada';
-    dbp.title = m === 'db' ? 'Proyectos, chats y tareas se guardan en la base de datos de La Cueva' : m === 'local' ? 'Sin base de datos: los datos solo se guardan en este navegador' : 'Sin almacenamiento: los datos se pierden al cerrar';
+    ai.title = AI.status === 'ok' ? (LC_SERVER ? 'Los agentes responden con ' + ({ anthropic: 'Anthropic API', openai: 'OpenAI API', mock: 'simulador de pruebas' }[AI.provider] || 'la API configurada') + ' desde el servidor' : 'Los agentes responden con Claude usando tu sesión') : (LC_SERVER ? 'Falta la clave de IA en Vercel' : 'Abre La Cueva dentro de Claude con tu sesión iniciada');
+    dbp.title = m === 'db' ? (LC_SERVER ? 'Proyectos, chats y tareas se guardan en la base de datos del servidor (Postgres)' : 'Proyectos, chats y tareas se guardan en la base de datos de La Cueva') : m === 'local' ? 'Sin base de datos: los datos solo se guardan en este navegador' : 'Sin almacenamiento: los datos se pierden al cerrar';
+    if (LC_SERVER && m === 'db') dbp.querySelector('span').textContent = 'Datos en el servidor';
   }
   return { header, open, close, toggle, renderDir, onSelect, placeSel, onHover, badges, sysPills, get selId() { return selId; } };
 })();
@@ -308,8 +309,8 @@ const ChatUI = (() => {
     for (const t of top) addRow(t, false);
     const f = h('<footer></footer>');
     const B = (txt, fn, cls) => { const b = h('<button class="btn sm ' + (cls || '') + '"></button>'); b.textContent = txt; b.onclick = fn; f.append(b); };
-    if (plan.state === 'pendiente_aprobacion') { B('Aprobar y ejecutar', () => Orch.approvePlan(pid)); B('Descartar', () => Orch.cancelPlan(pid), 'sec'); f.append(h('<span class="hint">Cada tarea consume tu uso de Claude (' + tasks.length + ' tareas, hasta ' + plan.maxCalls + ' llamadas).</span>')); }
-    if (plan.state === 'en_curso') { B('Pausar', () => Orch.pausePlan(pid), 'sec'); B('Cancelar', () => Orch.cancelPlan(pid), 'ghost'); f.append(h('<span class="hint">Avanza mientras La Cueva esté abierta.</span>')); }
+    if (plan.state === 'pendiente_aprobacion') { B('Aprobar y ejecutar', () => Orch.approvePlan(pid)); B('Descartar', () => Orch.cancelPlan(pid), 'sec'); f.append(h('<span class="hint">Cada tarea ' + (LC_SERVER ? 'se factura en tu cuenta del proveedor de IA' : 'consume tu uso de Claude') + ' (' + tasks.length + ' tareas, hasta ' + plan.maxCalls + ' llamadas).</span>')); }
+    if (plan.state === 'en_curso') { B('Pausar', () => Orch.pausePlan(pid), 'sec'); B('Cancelar', () => Orch.cancelPlan(pid), 'ghost'); f.append(h('<span class="hint">' + (LC_SERVER ? 'Lo ejecuta el servidor: puedes cerrar La Cueva.' : 'Avanza mientras La Cueva esté abierta.') + '</span>')); }
     if (plan.state === 'pausado' || plan.state === 'requiere_atencion') { B('Reanudar', () => Orch.resumePlan(pid)); if (tasks.some(t => t.state === 'completada')) B('Consolidar con lo hecho', () => Orch.consolidate(pid), 'sec'); B('Cancelar', () => Orch.cancelPlan(pid), 'ghost'); }
     if (plan.state === 'en_revision') { if (plan.consolidatedId) B('Ver informe', () => Panels.deliverable(plan.consolidatedId), 'sec'); B('Aprobar entrega', () => Orch.finishReview(pid, true)); f.append(h('<span class="hint">¿Cambios? Díselos a Daniel aquí mismo.</span>')); }
     if (plan.state === 'completado' && plan.consolidatedId) B('Ver informe', () => Panels.deliverable(plan.consolidatedId), 'sec');
@@ -378,6 +379,12 @@ const ChatUI = (() => {
     box.scrollTop = box.scrollHeight; composerState(Chat.isStreaming(convId));
     const s = $('.sugg', root()); if (s && msg.role === 'user') s.remove();
     if (msg.role === 'user') { const cv = Store.get('convs', convId); if (cv && cv.count <= 2) setTimeout(bar, 50); }
+  });
+  // mensajes que llegan desde el servidor (p. ej. el informe de Daniel) con el chat abierto
+  let rr = 0;
+  Bus.on('store:remote', ({ c, id }) => {
+    if (!convId || !root().classList.contains('open') || Chat.isStreaming(convId)) return;
+    if ((c === 'chunks' && id.startsWith(convId + '-')) || (c === 'convs' && id === convId)) { clearTimeout(rr); rr = setTimeout(msgs, 200); }
   });
   let rp = 0; const plansLater = () => { clearTimeout(rp); rp = setTimeout(() => { if (root().classList.contains('open')) { refreshPlans(); if (wide) sideCtx(); } }, 150); };
   Bus.on('store:tasks', plansLater); Bus.on('store:plans', plansLater);

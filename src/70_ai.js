@@ -1,15 +1,15 @@
 /* ============================================================
    LA CUEVA · capa de IA
-   Proveedor actual: Claude a través de la capacidad «sample» del artefacto
-   (usa la sesión de Claude de quien abre La Cueva; sin claves en el código).
-   La interfaz `AI.call` está aislada para poder añadir otro proveedor
-   (por ejemplo OpenAI) cuando exista un servidor propio.
+   En el artefacto: Claude a través de la capacidad «sample» (tu sesión de Claude).
+   Con backend: la misma interfaz, pero cada paso del modelo lo hace el servidor
+   con la clave guardada en Vercel (Anthropic API u OpenAI API). Sin claves en el navegador.
    ============================================================ */
 const AI = (() => {
-  let sample = null, limits = null, status = 'checking';
+  let sample = null, limits = null, status = 'checking', provider = LC_SERVER ? '' : 'claude';
   async function init() {
     try { if (window.claude && window.claude.use) sample = await window.claude.use('sample'); } catch (e) { sample = null; }
     if (sample) { try { limits = await sample.limits(); } catch (e) { limits = null; } status = 'ok'; } else status = 'none';
+    if (sample && sample.provider) provider = sample.provider;
     Bus.emit('ai:status', status);
     return status;
   }
@@ -29,7 +29,12 @@ const AI = (() => {
     tools_unavailable: 'Esta vista no permite que los agentes usen herramientas.',
     cancelled: 'Detenido.',
     upstream_error: 'Fallo temporal de conexión con Claude. Vuelve a intentarlo.',
-    no_ai: 'La IA no está disponible aquí. Abre La Cueva dentro de Claude con tu sesión iniciada.',
+    no_ai: LC_SERVER ? 'La IA no está configurada en el servidor: falta la clave de Anthropic API u OpenAI API en las variables de entorno de Vercel.' : 'La IA no está disponible aquí. Abre La Cueva dentro de Claude con tu sesión iniciada.',
+    no_provider: 'La IA no está configurada en el servidor: falta la clave de Anthropic API u OpenAI API en Vercel.',
+    provider_auth: 'El proveedor de IA ha rechazado la clave del servidor. Revísala en las variables de entorno de Vercel.',
+    model_not_found: 'El modelo configurado no existe o tu clave no tiene acceso a él.',
+    invalid_request: 'El proveedor de IA ha rechazado la petición.',
+    unavailable: 'Sin conexión con el servidor de La Cueva. Vuelve a intentarlo.',
     daily_limit: 'Se ha alcanzado el límite diario de llamadas que configuraste en Ajustes.',
     timeout: 'Se superó el tiempo máximo configurado para este agente.'
   };
@@ -51,15 +56,16 @@ const AI = (() => {
     const liveId = Activity.start({ agentId: agent.id, kind: o.kind || 'chat', label: o.label || '', taskId: o.taskId || null, projectId: o.projectId || null });
     try {
       const r = await sample(o.input, opts);
-      Activity.usage(agent.id, o.projectId, Math.ceil(inChars / 3.6), estTokens(r.text));
+      const real = r.usage && (r.usage.in || r.usage.out);
+      Activity.usage(agent.id, o.projectId, real ? r.usage.in : Math.ceil(inChars / 3.6), real ? r.usage.out : estTokens(r.text));
       return { text: r.text, truncated: r.truncated, tier: r.modelTierApplied, model: r.modelApplied || '' };
     } catch (e) {
       const code = (e && e.code) || 'upstream_error';
       if (code !== 'cancelled' && code !== 'not_granted') Activity.usage(agent.id, o.projectId, Math.ceil(inChars / 3.6), estTokens(e && e.text));
-      throw { code, message: copy(code), text: e && e.text };
+      throw { code, message: code === 'invalid_request' && e.message ? copy(code) + ' ' + e.message : copy(code), text: e && e.text };
     } finally { Activity.end(liveId); }
   }
-  return { init, call, copy, get status() { return status; }, get canTools() { return !!(limits && limits.tools); }, get canImages() { return !!(limits && limits.images); }, get limits() { return limits; } };
+  return { init, call, copy, get status() { return status; }, get provider() { return provider; }, get canTools() { return !!(limits && limits.tools); }, get canImages() { return !!(limits && limits.images); }, get limits() { return limits; } };
 })();
 
 /* ---------- construcción de contexto (preámbulo de cada agente) ---------- */

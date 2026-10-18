@@ -5,6 +5,9 @@
 const BR = { forest: '#344C3D', beige: '#EFE5D5', brown: '#3D3028', sand: '#B29A7D' };
 const OUT = '#241811';           // contorno de los sprites
 const TILE = 32;
+/* modo de ejecución: artefacto de Claude (por defecto), navegador con backend o worker del servidor */
+const LC_SERVER = !!(typeof window !== 'undefined' && window.LC_SERVER);
+const LC_RUNTIME = (typeof window !== 'undefined' && window.LC_RUNTIME) || 'artifact';
 
 function h2r(h) { h = h.replace('#', ''); if (h.length === 3) h = h.split('').map(c => c + c).join(''); const n = parseInt(h, 16); return [(n >> 16) & 255, (n >> 8) & 255, n & 255]; }
 function r2h(r, g, b) { return '#' + [r, g, b].map(v => Math.max(0, Math.min(255, Math.round(v))).toString(16).padStart(2, '0')).join(''); }

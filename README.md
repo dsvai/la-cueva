@@ -1,54 +1,83 @@
 # La Cueva
 
-Agencia digital de agentes de IA de **La Cueva by Daniel**: oficina pixel art 2D con 22 agentes, chat real, proyectos, orquestador de tareas, memoria supervisada y aprobaciones. Esta versión se publica como app (artefacto) dentro de Claude.
+Agencia digital de agentes de IA de **La Cueva by Daniel**: oficina pixel art 2D con 22 agentes, chat real, proyectos, orquestador de tareas, memoria supervisada y aprobaciones.
 
-## Inicio rápido
+Del mismo código salen dos versiones:
+
+| Versión | Dónde vive | IA | Datos | Segundo plano |
+| --- | --- | --- | --- | --- |
+| **Artefacto** (`dist/la-cueva.html`) | Dentro de Claude | Tu sesión de Claude (`sample`) | Base de datos del artefacto | Solo con la app abierta |
+| **Servidor** (`public/` + `api/`) | Vercel | Anthropic API u OpenAI API con clave en el servidor | Postgres (Neon) | Sí, con la app cerrada |
 
 ```bash
-node build.js          # genera dist/la-cueva.html (un único archivo, sin dependencias)
+npm install
+node build.js        # genera dist/la-cueva.html y public/
+npm run dev          # servidor local en http://localhost:3210 (PGlite en memoria si no hay DATABASE_URL)
+npm test             # pruebas del backend (PGlite + IA simulada)
 ```
 
-`dist/la-cueva.html` se publica como artefacto de Claude con estas capacidades:
+## Despliegue en Vercel
 
-| Capacidad | Para qué |
+El proyecto está vinculado al repositorio: cada push a `main` despliega producción.
+
+Variables de entorno (Project → Settings → Environment Variables). **Nunca** van en el código ni en el navegador:
+
+| Variable | Obligatoria | Para qué |
+| --- | --- | --- |
+| `DATABASE_URL` | Sí | La crea la integración de Neon (Storage → Neon). Región recomendada: Frankfurt (`aws-eu-central-1`), igual que las funciones (`fra1`). |
+| `ADMIN_PASSWORD` | Sí | Contraseña de acceso (mínimo 10 caracteres). Cambiarla cierra todas las sesiones. |
+| `CRON_SECRET` | Sí | Cadena aleatoria larga. Vercel la envía al cron horario para despertar al worker. |
+| `ANTHROPIC_API_KEY` | Una de las dos | Claude por API (facturación en console.anthropic.com, aparte de la suscripción a Claude). |
+| `OPENAI_API_KEY` | Una de las dos | OpenAI API (facturación en platform.openai.com; ChatGPT Plus no da acceso a la API). |
+| `AI_PROVIDER` | No | `anthropic` u `openai` si tienes las dos claves. |
+| `ANTHROPIC_MODEL_QUICK/DEFAULT/COMPLEX`, `OPENAI_MODEL_*` | No | Modelo por nivel. Por defecto: `claude-haiku-5-5`, `claude-sonnet-5-5`, `claude-opus-5-5` / `gpt-5-mini`, `gpt-5`. |
+| `AI_MAX_TOKENS` | No | Tope de salida por respuesta (por defecto 8.000; 16.000 en razonamiento avanzado). |
+| `LC_TIMEZONE` | No | Zona horaria de las programaciones (por defecto `Europe/Madrid`). |
+
+Tras cambiar variables hay que volver a desplegar (Deployments → Redeploy).
+
+**Migrar datos desde la versión de Claude:** en el artefacto, Ajustes → Descargar copia; en la versión de Vercel, Ajustes → Restaurar desde archivo.
+
+## Arquitectura del servidor
+
+| Ruta | Función |
 | --- | --- |
-| `db` (lectura y escritura solo del propietario) | Proyectos, conversaciones, tareas, entregables, memoria, actividad |
-| `sample` (con imágenes) | Las respuestas de los agentes, con la sesión de Claude de quien abre la app |
-| `downloads` | Descargar entregables y copias de seguridad |
-| `assets` | Guardar adjuntos |
+| `api/session.js` | Estado de configuración, entrar (cookie HttpOnly firmada, bloqueo tras 10 fallos) y salir |
+| `api/db.js` | Operaciones de documentos para el navegador (lectura, consulta, parches, cambios) |
+| `api/llm.js` | Un paso del modelo con la clave del servidor, en streaming (NDJSON) |
+| `api/worker.js` | Orquestador en segundo plano: cron horario (`CRON_SECRET`), aviso del navegador o relanzamiento propio |
+| `api/health.js` | Estado del servidor (nunca devuelve valores de claves) |
+| `server/db.js` | Conexión a Postgres y esquema (solo `CREATE … IF NOT EXISTS`, nunca borra) |
+| `server/docs.js` | Documentos con versión, parches en transacción con bloqueo por documento, feed de cambios, contratos |
+| `server/llm.js` | Proveedores Anthropic / OpenAI (y simulador solo para pruebas) |
+| `server/runtime.js` | Carga los módulos del orquestador de `src/` en un contexto aislado de Node y trabaja por tandas |
+| `shared/remote.cjs` | Común a navegador y worker: base de datos remota (parches + fusión a tres bandas) y bucle de herramientas |
+| `src/server_boot.js` | Arranque en Vercel: acceso, configuración pendiente y carga de la app |
 
-Fuera de Claude la app funciona, pero sin IA y guardando solo en el navegador; la cabecera lo indica.
+Claves de diseño:
 
-## Estructura
+- **Un único orquestador.** El worker ejecuta los mismos `src/60–75` que el artefacto; el navegador con backend solo observa y avisa al worker (`Leader` nunca le da el contrato).
+- **Escrituras sin pisarse.** Cada escritura es un parche (`set`, `unset`, `append`, `inc`). Consumo se suma, actividad y registros se añaden, el resto se fusiona por campos.
+- **Tandas.** Hobby limita cada función a 300 s: el worker deja de coger tareas a los 200 s, devuelve a la cola lo que siga a los 270 s y se relanza mientras quede trabajo (máximo 20 tandas seguidas; después lo retoma el cron).
+- **Cron horario en Hobby.** Hobby solo admite crons diarios, así que `vercel.json` define 24 (uno por hora). Las programaciones pueden arrancar hasta una hora tarde.
+
+## Estructura del frontend
 
 | Archivo | Contenido |
 | --- | --- |
-| `src/00_head.html` | Título, fuentes y sistema de diseño (tokens CSS) |
-| `src/05_body.html` | Estructura: cabecera, oficina, directorio, chat, paneles |
-| `src/10_core.js` | Utilidades, color, pincel de píxeles, bus de eventos |
-| `src/11_chars.js` | Generador de personajes (4 orientaciones, caminar, sentado) |
-| `src/12_tiles.js`, `src/13_props.js` | Suelos, muros, muebles y decoración |
-| `src/20_data.js` | Salas, plantilla de 22 agentes, herramientas, permisos, integraciones |
-| `src/30_world.js` | Mapa continuo, puestos, rutas (A*) y capa estática |
-| `src/50_view.js` | Cámara, dibujo, estados visibles, tu personaje, entrada |
-| `src/60_store.js` | Persistencia (db → navegador → memoria), actividad y consumo |
-| `src/65_agents.js` | Configuración, plantilla editable, memoria |
-| `src/70_ai.js` | Capa de IA (un único punto) y contexto de cada agente |
-| `src/72_chat.js` | Conversaciones, adjuntos y envío |
-| `src/75_orch.js` | Orquestador, herramientas de los agentes, proyectos, programación |
-| `src/80_ui.js`, `src/85_panels.js` | Interfaz: directorio, chat, paneles, fichas |
-| `src/90_main.js` | Arranque y textos de arquitectura |
-| `assets/logo.png` | Logotipo oficial (fondo transparente) |
-| `test/` | Pruebas de extremo a extremo con un entorno simulado de Claude (Playwright) |
+| `src/00_head.html`, `src/05_body.html` | Sistema de diseño (tokens CSS) y estructura |
+| `src/10_core.js` | Utilidades, pincel de píxeles, bus de eventos, modo de ejecución |
+| `src/11_chars.js`, `src/12_tiles.js`, `src/13_props.js` | Personajes, suelos, muros y muebles |
+| `src/20_data.js` | Salas, 22 agentes, herramientas, permisos, integraciones |
+| `src/30_world.js`, `src/50_view.js` | Mapa, rutas, cámara, dibujo y entrada |
+| `src/60_store.js` | Persistencia, fusión de cambios remotos, actividad, consumo y contrato del orquestador |
+| `src/65_agents.js`, `src/70_ai.js`, `src/72_chat.js`, `src/75_orch.js` | Plantilla, memoria, IA, chat, orquestador y herramientas |
+| `src/80_ui.js`, `src/85_panels.js`, `src/90_main.js` | Interfaz, paneles y arranque |
 
 ## Pruebas
 
 ```bash
-cd test && npm install && node app_test.js
+npm test                                   # backend: parches, concurrencia, contratos, bucle de herramientas, worker, pausa y traspaso
+cd test && node app_test.js                # artefacto con entorno simulado de Claude (Playwright)
+cd test && node server_e2e.cjs             # versión con backend: acceso, chat, plan ejecutado por el worker, dos dispositivos
 ```
-
-Simula la base de datos y la IA, recorre un plan completo (Daniel → Alex → colaboración de Mia → Clara → consolidación) y abre todos los paneles.
-
-## Fase 4
-
-La migración al backend (GitHub + Vercel) está descrita en el documento «La Cueva — Plan técnico y arquitectura». Los datos se trasladan con la copia JSON de Ajustes.

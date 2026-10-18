@@ -1,0 +1,148 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "framework": null,
+  "buildCommand": "node build.js",
+  "outputDirectory": "public",
+  "regions": [
+    "fra1"
+  ],
+  "functions": {
+    "api/worker.js": {
+      "maxDuration": 300,
+      "includeFiles": "{src/**,shared/**}"
+    },
+    "api/llm.js": {
+      "maxDuration": 300
+    },
+    "api/db.js": {
+      "maxDuration": 30
+    },
+    "api/session.js": {
+      "maxDuration": 15
+    },
+    "api/health.js": {
+      "maxDuration": 15
+    }
+  },
+  "crons": [
+    {
+      "path": "/api/worker?slot=0",
+      "schedule": "7 0 * * *"
+    },
+    {
+      "path": "/api/worker?slot=1",
+      "schedule": "7 1 * * *"
+    },
+    {
+      "path": "/api/worker?slot=2",
+      "schedule": "7 2 * * *"
+    },
+    {
+      "path": "/api/worker?slot=3",
+      "schedule": "7 3 * * *"
+    },
+    {
+      "path": "/api/worker?slot=4",
+      "schedule": "7 4 * * *"
+    },
+    {
+      "path": "/api/worker?slot=5",
+      "schedule": "7 5 * * *"
+    },
+    {
+      "path": "/api/worker?slot=6",
+      "schedule": "7 6 * * *"
+    },
+    {
+      "path": "/api/worker?slot=7",
+      "schedule": "7 7 * * *"
+    },
+    {
+      "path": "/api/worker?slot=8",
+      "schedule": "7 8 * * *"
+    },
+    {
+      "path": "/api/worker?slot=9",
+      "schedule": "7 9 * * *"
+    },
+    {
+      "path": "/api/worker?slot=10",
+      "schedule": "7 10 * * *"
+    },
+    {
+      "path": "/api/worker?slot=11",
+      "schedule": "7 11 * * *"
+    },
+    {
+      "path": "/api/worker?slot=12",
+      "schedule": "7 12 * * *"
+    },
+    {
+      "path": "/api/worker?slot=13",
+      "schedule": "7 13 * * *"
+    },
+    {
+      "path": "/api/worker?slot=14",
+      "schedule": "7 14 * * *"
+    },
+    {
+      "path": "/api/worker?slot=15",
+      "schedule": "7 15 * * *"
+    },
+    {
+      "path": "/api/worker?slot=16",
+      "schedule": "7 16 * * *"
+    },
+    {
+      "path": "/api/worker?slot=17",
+      "schedule": "7 17 * * *"
+    },
+    {
+      "path": "/api/worker?slot=18",
+      "schedule": "7 18 * * *"
+    },
+    {
+      "path": "/api/worker?slot=19",
+      "schedule": "7 19 * * *"
+    },
+    {
+      "path": "/api/worker?slot=20",
+      "schedule": "7 20 * * *"
+    },
+    {
+      "path": "/api/worker?slot=21",
+      "schedule": "7 21 * * *"
+    },
+    {
+      "path": "/api/worker?slot=22",
+      "schedule": "7 22 * * *"
+    },
+    {
+      "path": "/api/worker?slot=23",
+      "schedule": "7 23 * * *"
+    }
+  ],
+  "headers": [
+    {
+      "source": "/(.*)",
+      "headers": [
+        {
+          "key": "X-Content-Type-Options",
+          "value": "nosniff"
+        },
+        {
+          "key": "Referrer-Policy",
+          "value": "same-origin"
+        },
+        {
+          "key": "X-Frame-Options",
+          "value": "DENY"
+        },
+        {
+          "key": "Permissions-Policy",
+          "value": "camera=(), microphone=(), geolocation=()"
+        }
+      ]
+    }
+  ]
+}

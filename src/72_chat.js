@@ -57,14 +57,33 @@ const Chat = (() => {
     return ch;
   }
   function clean(m) { const c = Object.assign({}, m); if (c.att) c.att = c.att.map(a => { const x = Object.assign({}, a); delete x.blob; delete x.local; return x; }); return c; }
+  /* si el último bloque de mensajes aún no está cargado (p. ej. un aviso del orquestador en una
+     conversación que no has abierto), se carga antes de añadir, para no sobrescribir el historial */
+  const pendingChunk = new Map();
+  function afterChunk(convId, fn) {
+    const p = (pendingChunk.get(convId) || Promise.resolve()).then(fn).catch(e => console.warn('chat', e));
+    pendingChunk.set(convId, p); p.then(() => { if (pendingChunk.get(convId) === p) pendingChunk.delete(convId); });
+    return p;
+  }
   function post(convId, msg) {
     const cv = Store.get('convs', convId); if (!cv) return null;
     const m = Object.assign({ id: uid('m'), ts: Date.now(), status: 'ok' }, msg);
-    const ch = chunkFor(cv); ch.msgs.push(clean(m)); Store.put('chunks', ch);
-    cv.updatedAt = Date.now(); cv.count = (cv.count || 0) + 1; cv.last = trunc((m.text || '').replace(/\s+/g, ' '), 90);
-    Store.put('convs', cv); Bus.emit('chat:msg', { convId, msg: m }); return m;
+    const write = () => {
+      const c2 = Store.get('convs', convId) || cv;
+      const ch = chunkFor(c2); ch.msgs.push(clean(m)); Store.put('chunks', ch);
+      c2.updatedAt = Date.now(); c2.count = (c2.count || 0) + 1; c2.last = trunc((m.text || '').replace(/\s+/g, ' '), 90);
+      Store.put('convs', c2);
+    };
+    const lastId = cv.id + '-' + ((cv.chunks || 1) - 1);
+    if (!pendingChunk.has(convId) && (Store.get('chunks', lastId) || !cv.count)) write();
+    else afterChunk(convId, async () => { await Store.load('chunks', lastId); write(); });
+    Bus.emit('chat:msg', { convId, msg: m }); return m;
   }
   function update(convId, msg) {
+    if (pendingChunk.has(convId)) { afterChunk(convId, () => update0(convId, msg)); return; }
+    update0(convId, msg);
+  }
+  function update0(convId, msg) {
     const cv = Store.get('convs', convId); if (!cv) return;
     for (let n = (cv.chunks || 1) - 1; n >= 0; n--) { const ch = Store.get('chunks', convId + '-' + n); if (!ch) continue; const i = ch.msgs.findIndex(x => x.id === msg.id); if (i >= 0) { ch.msgs[i] = clean(msg); Store.put('chunks', ch); break; } }
     cv.updatedAt = Date.now(); cv.last = trunc((msg.text || '').replace(/\s+/g, ' '), 90); Store.put('convs', cv);
