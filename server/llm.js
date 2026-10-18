@@ -49,7 +49,7 @@ function mergeRoles(messages) {
   const out = [];
   for (const m of messages) {
     if (m.role !== 'user' && m.role !== 'assistant') continue;
-    const b = blocks(m.content).filter(x => x && (x.type !== 'text' || x.text));
+    const b = blocks(m.content).flatMap(x => (x && x.type === 'provider_raw' && x.provider !== 'anthropic') ? rawToNeutral(x.blocks) : [x]).filter(x => x && (x.type !== 'text' || x.text));
     if (!b.length) continue;
     const last = out[out.length - 1];
     if (last && last.role === m.role) last.content.push(...b); else out.push({ role: m.role, content: b.slice() });
@@ -58,17 +58,32 @@ function mergeRoles(messages) {
   return out;
 }
 
+function toolResultContent(b) {
+  const imgs = Array.isArray(b.images) ? b.images.filter(i => i && i.data) : [];
+  if (!imgs.length) return String(b.content || '');
+  return [{ type: 'text', text: String(b.content || '') || '…' }].concat(imgs.slice(0, 6).map(i => ({ type: 'image', source: { type: 'base64', media_type: i.mediaType || 'image/jpeg', data: i.data } })));
+}
 function toAnthropic(messages) {
   return mergeRoles(messages).map(m => ({
     role: m.role,
-    content: m.content.map(b => {
-      if (b.type === 'text') return { type: 'text', text: b.text };
-      if (b.type === 'image') return { type: 'image', source: { type: 'base64', media_type: b.mediaType, data: b.data } };
-      if (b.type === 'tool_call') return { type: 'tool_use', id: b.id, name: b.name, input: b.input || {} };
-      if (b.type === 'tool_result') return { type: 'tool_result', tool_use_id: b.id, content: String(b.content || ''), is_error: !!b.isError };
-      return { type: 'text', text: '' };
+    content: m.content.flatMap(b => {
+      if (b.type === 'provider_raw') return b.provider === 'anthropic' && Array.isArray(b.blocks) ? b.blocks : [];
+      if (b.type === 'text') return [{ type: 'text', text: b.text }];
+      if (b.type === 'image') return [{ type: 'image', source: { type: 'base64', media_type: b.mediaType, data: b.data } }];
+      if (b.type === 'tool_call') return [{ type: 'tool_use', id: b.id, name: b.name, input: b.input || {} }];
+      if (b.type === 'tool_result') return [{ type: 'tool_result', tool_use_id: b.id, content: toolResultContent(b), is_error: !!b.isError }];
+      return [];
     })
   }));
+}
+/* bloques originales de Anthropic a formato neutro (para otros proveedores) */
+function rawToNeutral(blocks) {
+  const out = [];
+  for (const x of blocks || []) {
+    if (x.type === 'text' && x.text) out.push({ type: 'text', text: x.text });
+    else if (x.type === 'tool_use') out.push({ type: 'tool_call', id: x.id, name: x.name, input: x.input || {} });
+  }
+  return out;
 }
 
 function toOpenAI(messages) {
@@ -79,8 +94,10 @@ function toOpenAI(messages) {
       const calls = m.content.filter(b => b.type === 'tool_call').map(b => ({ id: b.id, type: 'function', function: { name: b.name, arguments: JSON.stringify(b.input || {}) } }));
       out.push(Object.assign({ role: 'assistant', content: text || null }, calls.length ? { tool_calls: calls } : {}));
     } else {
-      for (const b of m.content.filter(x => x.type === 'tool_result')) out.push({ role: 'tool', tool_call_id: b.id, content: String(b.content || '') });
-      const parts = m.content.filter(b => b.type === 'text' || b.type === 'image').map(b => b.type === 'text' ? { type: 'text', text: b.text } : { type: 'image_url', image_url: { url: 'data:' + b.mediaType + ';base64,' + b.data } });
+      const toolImgs = [];
+      for (const b of m.content.filter(x => x.type === 'tool_result')) { out.push({ role: 'tool', tool_call_id: b.id, content: String(b.content || '') }); for (const i of (b.images || [])) toolImgs.push({ type: 'image', mediaType: i.mediaType || 'image/jpeg', data: i.data }); }
+      const parts = m.content.filter(b => b.type === 'text' || b.type === 'image').concat(toolImgs).map(b => b.type === 'text' ? { type: 'text', text: b.text } : { type: 'image_url', image_url: { url: 'data:' + b.mediaType + ';base64,' + b.data } });
+      if (toolImgs.length && parts.length === toolImgs.length) parts.unshift({ type: 'text', text: 'Imágenes devueltas por la herramienta:' });
       if (parts.length) out.push({ role: 'user', content: parts.length === 1 && parts[0].type === 'text' ? parts[0].text : parts });
     }
   }
@@ -109,14 +126,21 @@ async function anthropicStep(req) {
   const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY, maxRetries: 2, timeout: 280000 });
   const params = { model: req.modelId, max_tokens: maxTokens(req.tier), messages: toAnthropic(req.messages) };
   if (req.tools && req.tools.length) params.tools = req.tools.map(t => ({ name: t.name, description: t.description || '', input_schema: t.inputSchema || { type: 'object', properties: {} } }));
+  if (req.web) params.tools = (params.tools || []).concat([{ type: 'web_search_20250305', name: 'web_search', max_uses: 5 }, { type: 'web_fetch_20250910', name: 'web_fetch', max_uses: 5, max_content_tokens: 20000 }]);
   const stream = client.messages.stream(params, { signal: req.signal });
   let cum = '';
   stream.on('text', d => { cum += d; if (req.onText) req.onText(d, cum); });
   const msg = await stream.finalMessage();
-  const text = msg.content.filter(b => b.type === 'text').map(b => b.text).join('');
+  let text = msg.content.filter(b => b.type === 'text').map(b => b.text).join('');
   const toolCalls = msg.content.filter(b => b.type === 'tool_use').map(b => ({ id: b.id, name: b.name, input: b.input || {} }));
-  const stop = msg.stop_reason === 'tool_use' ? 'tool_use' : msg.stop_reason === 'max_tokens' ? 'max_tokens' : msg.stop_reason === 'refusal' ? 'refusal' : 'end';
-  return { text, toolCalls, stop, usage: { in: (msg.usage && msg.usage.input_tokens) || 0, out: (msg.usage && msg.usage.output_tokens) || 0 }, model: msg.model || req.modelId };
+  const stop = msg.stop_reason === 'tool_use' ? 'tool_use' : msg.stop_reason === 'max_tokens' ? 'max_tokens' : msg.stop_reason === 'refusal' ? 'refusal' : msg.stop_reason === 'pause_turn' ? 'pause' : 'end';
+  // fuentes citadas en búsquedas web
+  const src = new Map();
+  for (const b of msg.content) if (b.type === 'text' && Array.isArray(b.citations)) for (const c of b.citations) if (c.url && !src.has(c.url)) src.set(c.url, c.title || c.url);
+  const searches = (msg.usage && msg.usage.server_tool_use && msg.usage.server_tool_use.web_search_requests) || 0;
+  if (src.size && stop !== 'tool_use' && stop !== 'pause') text += '\n\n**Fuentes:**\n' + [...src].slice(0, 12).map(([u, t]) => '- [' + String(t).replace(/[\[\]]/g, '') + '](' + u + ')').join('\n');
+  const hasServer = msg.content.some(b => b.type === 'server_tool_use' || /_tool_result$/.test(b.type));
+  return { text, toolCalls, stop, usage: { in: (msg.usage && msg.usage.input_tokens) || 0, out: (msg.usage && msg.usage.output_tokens) || 0, searches }, model: msg.model || req.modelId, raw: hasServer || stop === 'pause' ? msg.content : undefined };
 }
 
 /* ---------- OpenAI ---------- */
@@ -155,13 +179,15 @@ async function mockStep(req) {
   const results = blocks(last.content).filter(b => b.type === 'tool_result');
   await sleep(/LENTO/.test(all) ? 2500 : 120);
   const done = (text, toolCalls) => { const t = text || ''; if (req.onText && t) { req.onText(t.slice(0, 12), t.slice(0, 12)); req.onText(t.slice(12), t); } return { text: t, toolCalls: toolCalls || [], stop: toolCalls && toolCalls.length ? 'tool_use' : 'end', usage: { in: Math.ceil(all.length / 4), out: Math.ceil(t.length / 4) }, model: 'mock' }; };
-  if (results.length) return done('Hecho. ' + results.map(r => r.content).join(' '));
+  if (results.length) return done('Hecho. ' + results.map(r => r.content + (r.images && r.images.length ? ' [he visto ' + r.images.length + ' imágenes]' : '')).join(' '));
   const call = (name, input) => done('', [{ id: 'mock_' + mockCalls, name, input }]);
   if (/^Eres Daniel/.test(first) && /PLANPRUEBA/.test(lastText) && has('crear_plan')) return call('crear_plan', { titulo: 'Propuesta de tienda Shopify', objetivo: 'Tienda de gorras lista para lanzar' + (/LENTO/.test(lastText) ? ' (LENTO)' : ''), tareas: [
     { clave: 't1', titulo: 'Estructura de tienda y catálogo', instrucciones: 'Define estructura de la tienda Shopify. colabora con mia', responsable: 'alex' },
     { clave: 't2', titulo: 'Textos de la home y fichas', instrucciones: 'Escribe los textos', responsable: 'clara', depende_de: ['t1'] }] });
   if (/REGLAPRUEBA/.test(lastText) && has('proponer_regla_memoria')) return call('proponer_regla_memoria', { alcance: 'agencia', texto: 'Tutea siempre al cliente', motivo: 'Lo pidió el administrador' });
   if (/## TAREA ASIGNADA/.test(all) && /colabora con mia/.test(lastText) && has('pedir_colaboracion')) return call('pedir_colaboracion', { agente: 'mia', peticion: 'Propón la navegación y la home' });
+  if (/PAGINASPRUEBA/.test(lastText) && has('ver_paginas_documento')) return call('ver_paginas_documento', { documento: 'plan_texto.pdf', paginas: '1-2' });
+  if (/SHOPIFYPRUEBA/.test(lastText) && has('shopify_proponer_cambio')) return call('shopify_proponer_cambio', { accion: 'crear_producto_borrador', titulo: 'Gorra de prueba', descripcion_html: '<p>Prueba</p>', motivo: 'Prueba' });
   if (/APROBACIONPRUEBA/.test(lastText) && has('solicitar_aprobacion')) return call('solicitar_aprobacion', { accion: 'Publicar el tema en producción', detalle: 'Cambios en la home' });
   return done('## Respuesta simulada del servidor\n\nRespuesta de prueba número ' + mockCalls + ' (' + req.modelId + ').\n\n- punto uno\n- punto dos');
 }
@@ -177,6 +203,10 @@ export async function step(req) {
     return await run(Object.assign({}, req, { modelId: explicit || tierModel }));
   } catch (e) {
     const err = mapError(e, req.signal);
+    // si la búsqueda web está desactivada en la organización de Anthropic, se sigue sin ella
+    if (req.web && err.code === 'invalid_request' && /web.?(search|fetch)/i.test(String(e && e.message))) {
+      try { const r = await run(Object.assign({}, req, { web: false, modelId: explicit || tierModel })); r.text = (r.text || '') + '\n\n_(La búsqueda web está desactivada en tu cuenta de Anthropic: actívala en Settings → Capabilities de la consola.)_'; return r; } catch (e2) { throw mapError(e2, req.signal); }
+    }
     if (explicit && (err.code === 'model_not_found' || err.code === 'invalid_request') && explicit !== tierModel) {
       try { return await run(Object.assign({}, req, { modelId: tierModel })); } catch (e2) { throw mapError(e2, req.signal); }
     }
@@ -188,5 +218,5 @@ export async function step(req) {
 export function validateRequest(b) {
   if (!b || !Array.isArray(b.messages) || !b.messages.length || b.messages.length > 400) throw new LlmError('invalid_request', 'Mensajes no válidos');
   const tools = Array.isArray(b.tools) ? b.tools.slice(0, 20).filter(t => t && typeof t.name === 'string' && /^[\w-]{1,64}$/.test(t.name)) : [];
-  return { messages: b.messages, tools, tier: TIERS.includes(b.tier) ? b.tier : 'default', model: typeof b.model === 'string' ? b.model : '' };
+  return { messages: b.messages, tools, tier: TIERS.includes(b.tier) ? b.tier : 'default', model: typeof b.model === 'string' ? b.model : '', web: !!b.web };
 }

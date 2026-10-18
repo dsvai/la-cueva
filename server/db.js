@@ -62,6 +62,14 @@ const SCHEMA = [
      holder text NOT NULL,
      expires_at timestamptz NOT NULL
    )`,
+  `CREATE TABLE IF NOT EXISTS lc_secrets (
+     project_id text NOT NULL,
+     provider text NOT NULL,
+     enc text NOT NULL,
+     meta jsonb,
+     updated_at timestamptz NOT NULL DEFAULT now(),
+     PRIMARY KEY (project_id, provider)
+   )`,
   `CREATE TABLE IF NOT EXISTS lc_meta (
      k text PRIMARY KEY,
      v jsonb,

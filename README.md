@@ -33,6 +33,8 @@ Variables de entorno (Project → Settings → Environment Variables). **Nunca**
 | `ANTHROPIC_MODEL_QUICK/DEFAULT/COMPLEX`, `OPENAI_MODEL_*` | No | Modelo por nivel. Por defecto: `claude-haiku-5-5`, `claude-sonnet-5-5`, `claude-opus-5-5` / `gpt-5-mini`, `gpt-5`. |
 | `AI_MAX_TOKENS` | No | Tope de salida por respuesta (por defecto 8.000; 16.000 en razonamiento avanzado). |
 | `LC_TIMEZONE` | No | Zona horaria de las programaciones (por defecto `Europe/Madrid`). |
+| `LC_SECRET_KEY` | Recomendable | Clave para cifrar las credenciales de integraciones. Si no existe, se deriva de `ADMIN_PASSWORD` (y cambiar la contraseña obliga a reconectarlas). |
+| `SHOPIFY_API_VERSION` | No | Versión de la Admin API de Shopify (por defecto `2026-07`). |
 
 Tras cambiar variables hay que volver a desplegar (Deployments → Redeploy).
 
@@ -47,6 +49,8 @@ Tras cambiar variables hay que volver a desplegar (Deployments → Redeploy).
 | `api/llm.js` | Un paso del modelo con la clave del servidor, en streaming (NDJSON) |
 | `api/worker.js` | Orquestador en segundo plano: cron horario (`CRON_SECRET`), aviso del navegador o relanzamiento propio |
 | `api/health.js` | Estado del servidor (nunca devuelve valores de claves) |
+| `api/integrations.js` | Integraciones por proyecto: conectar, consultar y ejecutar acciones ya aprobadas |
+| `server/integrations.js` | Credenciales cifradas (AES-256-GCM) por proyecto y cliente de Shopify (Admin GraphQL, client credentials) |
 | `server/db.js` | Conexión a Postgres y esquema (solo `CREATE … IF NOT EXISTS`, nunca borra) |
 | `server/docs.js` | Documentos con versión, parches en transacción con bloqueo por documento, feed de cambios, contratos |
 | `server/llm.js` | Proveedores Anthropic / OpenAI (y simulador solo para pruebas) |
@@ -60,6 +64,12 @@ Claves de diseño:
 - **Escrituras sin pisarse.** Cada escritura es un parche (`set`, `unset`, `append`, `inc`). Consumo se suma, actividad y registros se añaden, el resto se fusiona por campos.
 - **Tandas.** Hobby limita cada función a 300 s: el worker deja de coger tareas a los 200 s, devuelve a la cola lo que siga a los 270 s y se relanza mientras quede trabajo (máximo 20 tandas seguidas; después lo retoma el cron).
 - **Cron horario en Hobby.** Hobby solo admite crons diarios, así que `vercel.json` define 24 (uno por hora). Las programaciones pueden arrancar hasta una hora tarde.
+
+## Capacidades de los agentes en la versión con servidor
+
+- **Internet:** búsqueda (`web_search`) y lectura de páginas o PDF públicos (`web_fetch`) de Anthropic, con fuentes citadas. Solo con Anthropic como proveedor. Permiso «Buscar en internet» en cada ficha.
+- **PDF y Word:** texto con pdf.js / mammoth en el navegador; los PDF de imágenes los transcribe la IA. Hasta 20 páginas se guardan como imagen y los agentes pueden verlas con `ver_paginas_documento`.
+- **Shopify:** se conecta por proyecto (Proyectos → Integraciones) con el Client ID y el Client secret de una app del Dev Dashboard. Lectura libre para los agentes del proyecto; las escrituras (crear borrador, editar, cambiar estado) se proponen, aparecen en Aprobaciones con el cambio exacto y el servidor las ejecuta una sola vez al aprobarlas.
 
 ## Estructura del frontend
 

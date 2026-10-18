@@ -13,6 +13,7 @@ import { createRequire } from 'node:module';
 import { runOps } from './docs.js';
 import { step, provider } from './llm.js';
 import { setMeta } from './db.js';
+import * as integrations from './integrations.js';
 
 const require = createRequire(import.meta.url);
 const remote = require('../shared/remote.cjs');
@@ -35,6 +36,8 @@ export function loadRuntime(db, sample, runtime) {
     LC_SERVER: true, LC_RUNTIME: runtime || 'worker'
   };
   g.window = g;
+  // en el worker, las integraciones se leen directamente (las escrituras solo desde aprobaciones del navegador)
+  g.LCIntegrations = { read: (pid, op, params) => integrations.read(pid, op, params), execute: async () => { throw new Error('Las acciones aprobadas se ejecutan desde el panel de Aprobaciones.'); } };
   g.claude = { use: async n => (n === 'db' ? db : n === 'sample' ? sample : null) };
   return vm.runInContext(source(), vm.createContext(g), { filename: 'la-cueva-' + (runtime || 'worker') + '.js' });
 }

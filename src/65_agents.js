@@ -19,8 +19,10 @@ const Roster = (() => {
   }
   function all() {
     const out = [], seen = new Set();
-    for (const d of DEFAULT_AGENTS) { const o = Store.get('agents', d.id); out.push(o ? Object.assign(base(d), o) : base(d)); seen.add(d.id); }
-    for (const o of Store.all('agents')) if (!seen.has(o.id)) out.push(Object.assign(base(o), o));
+    // los permisos nuevos que no existían cuando se guardó la ficha toman su valor por defecto
+    const merge = (b, o) => Object.assign(b, o, { perms: Object.assign({}, b.perms, o.perms || {}), limits: Object.assign({}, b.limits, o.limits || {}) });
+    for (const d of DEFAULT_AGENTS) { const o = Store.get('agents', d.id); out.push(o ? merge(base(d), o) : base(d)); seen.add(d.id); }
+    for (const o of Store.all('agents')) if (!seen.has(o.id)) out.push(merge(base(o), o));
     return out;
   }
   function get(id) { return all().find(a => a.id === id) || null; }

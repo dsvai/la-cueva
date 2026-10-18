@@ -174,23 +174,24 @@ const Panels = (() => {
       if (t === 'docs') {
         b.append(h('<div class="note">Los documentos del proyecto son la base de conocimiento que los agentes consultan con «Consultar documentos». Admite texto pegado, archivos de texto, PDF y Word (.docx). Los PDF que son sobre todo imágenes los lee la IA una vez (consume algunas llamadas). Los documentos que adjuntas en un chat de este proyecto también se guardan aquí.</div>'));
         const f = h('<form class="form card" style="margin-top:12px"><div class="f2"><label class="f">Nombre del documento<input name="n" required maxlength="80" placeholder="p. ej. Briefing de marca"></label><label class="f">O sube un archivo (texto, PDF o Word)<input name="file" type="file" accept=".txt,.md,.csv,.json,.html,.xml,.yml,.yaml,.pdf,.docx"></label></div><label class="f">Contenido<textarea name="t" placeholder="Pega aquí el texto"></textarea></label><div><button class="btn" type="submit">Añadir documento</button></div></form>');
+        let pageBlobs = null;
         f.file.onchange = async () => {
-          const fl = f.file.files[0]; if (!fl) return;
+          const fl = f.file.files[0]; if (!fl) return; pageBlobs = null;
           if (!f.n.value) f.n.value = fl.name.slice(0, 80);
           if (DocRead.can(fl)) {
             f.t.value = ''; f.t.placeholder = 'Leyendo ' + fl.name + '…'; const btn = f.querySelector('button[type=submit]'); btn.disabled = true;
-            try { const r = await DocRead.read(fl, m => { f.t.placeholder = m; }); f.t.value = String(r.text || '').slice(0, 200000); if (r.note) toast(r.note); if (!f.t.value.trim()) toast('El documento no contiene texto legible.', true); }
+            try { const r = await DocRead.read(fl, m => { f.t.placeholder = m; }); f.t.value = String(r.text || '').slice(0, 200000); pageBlobs = r.pageBlobs || null; if (r.note) toast(r.note); if (!f.t.value.trim()) toast('El documento no contiene texto legible.', true); }
             catch (e) { toast('No se pudo leer el documento: ' + ((e && e.message) || 'error'), true); }
             finally { btn.disabled = false; f.t.placeholder = 'Pega aquí el texto'; }
           } else f.t.value = (await fl.text()).slice(0, 200000);
         };
-        f.onsubmit = e => { e.preventDefault(); const text = f.t.value.trim(); if (!f.n.value.trim() || !text) { toast('Pon un nombre y el contenido del documento.', true); return; } const d = Store.put('pdocs', { id: uid('pd'), projectId: pid, name: trunc(f.n.value.trim(), 80), size: text.length, ts: Date.now() }); Store.put('ptext', { id: d.id, text: text.slice(0, 200000) }); Activity.log('proyecto', 'Documento añadido: ' + d.name, { projectId: pid }); toast('Documento añadido'); };
+        f.onsubmit = e => { e.preventDefault(); const text = f.t.value.trim(); if (!f.n.value.trim() || !text) { toast('Pon un nombre y el contenido del documento.', true); return; } const d = Store.put('pdocs', { id: uid('pd'), projectId: pid, name: trunc(f.n.value.trim(), 80), size: text.length, ts: Date.now() }); Store.put('ptext', { id: d.id, text: text.slice(0, 200000) }); if (pageBlobs && pageBlobs.length) Chat.savePages(d.id, pageBlobs); pageBlobs = null; Activity.log('proyecto', 'Documento añadido: ' + d.name, { projectId: pid }); toast('Documento añadido'); };
         b.append(f);
         const ds = Store.all('pdocs').filter(d => d.projectId === pid);
         b.append(h('<div class="sec-h">Documentos (' + ds.length + ')</div>'));
         if (!ds.length) b.append(h(empty('Sin documentos', 'Añade briefings, datos o textos de referencia.')));
         const L = h('<div class="card list"></div>');
-        for (const d of ds) { const li = h('<div class="li"><div class="grow"><b></b><small></small></div></div>'); li.querySelector('b').textContent = d.name; li.querySelector('small').textContent = fmtNum(d.size) + ' caracteres · ' + fmtDT(d.ts); const v = h('<button class="btn sm sec">Ver</button>'); v.onclick = async () => { const t2 = await Store.load('ptext', d.id); preview({ kind: 'text', name: d.name, text: (t2 && t2.text) || '' }); }; const del = h('<button class="btn sm ghost">Eliminar</button>'); del.onclick = () => confirmBox('¿Eliminar «' + d.name + '»?', 'Los agentes dejarán de poder consultarlo. No se puede deshacer.', 'Eliminar documento', () => { Store.del('pdocs', d.id); Store.del('ptext', d.id); Activity.log('proyecto', 'Documento eliminado: ' + d.name, { projectId: pid }); }); li.append(v, del); L.append(li); }
+        for (const d of ds) { const li = h('<div class="li"><div class="grow"><b></b><small></small></div></div>'); li.querySelector('b').textContent = d.name; li.querySelector('small').textContent = fmtNum(d.size) + ' caracteres' + (d.pages ? ' · ' + d.pages + ' páginas con imagen' : '') + (d.method === 'lectura con IA' ? ' · leído por la IA' : '') + ' · ' + fmtDT(d.ts); const v = h('<button class="btn sm sec">Ver</button>'); v.onclick = async () => { const t2 = await Store.load('ptext', d.id); preview({ kind: 'text', name: d.name, text: (t2 && t2.text) || '' }); }; const del = h('<button class="btn sm ghost">Eliminar</button>'); del.onclick = () => confirmBox('¿Eliminar «' + d.name + '»?', 'Los agentes dejarán de poder consultarlo. No se puede deshacer.', 'Eliminar documento', () => { Store.del('pdocs', d.id); Store.del('ptext', d.id); for (let n = 1; n <= (d.pages || 0); n++) Store.del('pimg', d.id + '-p' + n); Activity.log('proyecto', 'Documento eliminado: ' + d.name, { projectId: pid }); }); li.append(v, del); L.append(li); }
         if (ds.length) b.append(L);
       }
       if (t === 'conv') {
@@ -217,6 +218,7 @@ const Panels = (() => {
         const L = h('<div class="card list"></div>'); for (const n of ns) { const li = h('<div class="li"><div class="grow"><b style="font-weight:500"></b><small></small></div></div>'); li.querySelector('b').textContent = n.text; li.querySelector('small').textContent = agentName(n.agentId) + ' · ' + fmtDT(n.ts); const del = h('<button class="btn sm ghost">Borrar</button>'); del.onclick = () => Store.del('notes', n.id); li.append(del); L.append(li); } if (ns.length) b.append(L);
         b.append(h('<div class="note" style="margin-top:12px">Además se guardan automáticamente las conversaciones, tareas, entregables y su historial de ejecución dentro del proyecto.</div>'));
       }
+      if (t === 'int' && LC_SERVER) { projectIntegrations(b, Store.get('projects', pid) || pr); return; }
       if (t === 'int') { b.append(h('<div class="note">Ninguna integración externa está conectada todavía. Cuando exista el backend (Fase 4), cada conexión se asignará a un proyecto concreto con sus propias credenciales, sin mezclar cuentas de distintos clientes.</div>')); const g = h('<div class="grid g2" style="margin-top:12px"></div>'); for (const i of INTEGRATIONS.filter(x => x.id !== 'claude')) { const c = h('<div class="card"><b></b> <span class="chip plain">Pendiente de desarrollo</span><div class="hint"></div></div>'); c.querySelector('b').textContent = i.name; c.querySelector('.hint').textContent = i.need; g.append(c); } b.append(g); }
       if (t === 'cost') usage(b, pid);
       if (t === 'act') activityList(b, pid);
@@ -224,6 +226,36 @@ const Panels = (() => {
   }
 
   /* ================= APROBACIONES ================= */
+  /* integraciones del proyecto (versión con servidor): cada proyecto tiene sus propias credenciales */
+  function projectIntegrations(b, pr) {
+    const sh = pr.integrations && pr.integrations.shopify;
+    const redraw = integ => { Store.patch('projects', pr.id, { integrations: integ }); b.innerHTML = ''; projectIntegrations(b, Store.get('projects', pr.id)); };
+    b.append(h('<div class="note">Las credenciales se guardan cifradas en el servidor, solo para este proyecto: nunca llegan al navegador ni se comparten con otros proyectos. Los agentes pueden <b>consultar</b> la tienda; cualquier <b>cambio</b> (crear borradores, editar textos, publicar) les llega como propuesta a Aprobaciones y solo se ejecuta si lo apruebas.</div>'));
+    const c = h('<div class="card" style="margin-top:12px"><div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"><b style="font-family:var(--f-display);font-size:var(--t-l);flex:1">Shopify</b><span class="chip"></span></div><div class="body" style="margin-top:8px"></div></div>');
+    const chip = c.querySelector('.chip'), body = c.querySelector('.body');
+    if (sh) {
+      chip.className = 'chip ok'; chip.textContent = 'Conectada';
+      body.innerHTML = '<div><b></b></div><div class="hint"></div><div class="toolbar" style="margin-top:10px"><button class="btn sec t">Probar conexión</button><button class="btn ghost d">Desconectar</button></div>';
+      body.querySelector('b').textContent = (sh.name || '') + ' · ' + sh.shop; body.querySelector('.hint').textContent = 'Conectada ' + fmtDT(sh.connectedAt) + (sh.currency ? ' · moneda ' + sh.currency : '');
+      body.querySelector('.t').onclick = async () => { try { const r = await window.LCIntegrations.read(pr.id, 'estado_tienda', {}); toast('Conexión correcta: ' + r.tienda + ' · ' + (r.productos != null ? r.productos + ' productos' : '')); } catch (e) { toast(e.message || 'No se pudo conectar.', true); } };
+      body.querySelector('.d').onclick = () => confirmBox('¿Desconectar Shopify de este proyecto?', 'Se borran las credenciales guardadas. La tienda no cambia. Podrás volver a conectarla cuando quieras.', 'Desconectar', async () => { try { await window.LCIntegrations.disconnect(pr.id, 'shopify'); const integ = Object.assign({}, pr.integrations); delete integ.shopify; redraw(integ); toast('Shopify desconectada'); } catch (e) { toast(e.message, true); } });
+    } else {
+      chip.className = 'chip warn'; chip.textContent = 'Sin conectar';
+      body.innerHTML = '<details class="hint" style="margin-bottom:10px"><summary style="cursor:pointer;font-weight:600">Cómo conseguir los datos (5 minutos)</summary><ol style="margin:8px 0 0 18px;line-height:1.6"><li>Entra en dev.shopify.com con tu cuenta de Partner y abre <b>Apps → Create app</b> (créala «manualmente», sin plantilla).</li><li>En <b>Versions → New version</b>, en «Access scopes» marca lo que La Cueva puede hacer: <b>read_products</b> y <b>write_products</b> (y <b>read_orders</b> si quieres resúmenes de ventas). Como App URL vale https://shopify.dev/apps/default-app-home. Pulsa <b>Release</b>.</li><li>En <b>Home → Install app</b>, instálala en la tienda. La tienda tiene que estar en la misma organización que la app.</li><li>En <b>Settings</b> de la app copia el <b>Client ID</b> y el <b>Client secret</b> y pégalos aquí.</li></ol></details><form class="form"><label class="f">Dominio interno de la tienda<input name="shop" required placeholder="mi-tienda.myshopify.com" autocomplete="off"></label><div class="f2"><label class="f">Client ID<input name="cid" autocomplete="off"></label><label class="f">Client secret<input name="cs" type="password" autocomplete="new-password"></label></div><label class="f">O, si tienes una app antigua, su token de acceso (shpat_…)<input name="tok" type="password" autocomplete="new-password" placeholder="Opcional"></label><div><button class="btn" type="submit">Conectar y probar</button></div></form>';
+      const f = body.querySelector('form');
+      f.onsubmit = async e => {
+        e.preventDefault(); const btn = f.querySelector('button'); btn.disabled = true; btn.textContent = 'Comprobando con Shopify…';
+        try { const m = await window.LCIntegrations.connect(pr.id, 'shopify', { shop: f.shop.value, clientId: f.cid.value, clientSecret: f.cs.value, accessToken: f.tok.value }); f.reset(); redraw(Object.assign({}, pr.integrations, { shopify: { shop: m.shop, name: m.name, currency: m.currency, connectedAt: m.connectedAt } })); toast('Conectada: ' + m.name); }
+        catch (er) { toast(er.message || 'No se pudo conectar.', true); }
+        btn.disabled = false; btn.textContent = 'Conectar y probar';
+      };
+    }
+    b.append(c);
+    const g = h('<div class="grid g2" style="margin-top:12px"></div>');
+    for (const i of INTEGRATIONS.filter(x => !['claude', 'shopify', 'web', 'openai'].includes(x.id))) { const k = h('<div class="card"><b></b> <span class="chip plain">Pendiente de desarrollo</span><div class="hint"></div></div>'); k.querySelector('b').textContent = i.name; k.querySelector('.hint').textContent = i.need; g.append(k); }
+    b.append(g);
+  }
+
   function approvals() {
     const p = shell('Aprobaciones', 'Los agentes trabajan con autonomía, pero estas acciones esperan tu decisión: ' + SENSITIVE.join(', ').toLowerCase() + '. También las nuevas contrataciones.', true);
     tabsInto(p, [['pend', 'Pendientes'], ['hist', 'Historial']], 'appr', (t, b) => {
@@ -233,11 +265,13 @@ const Panels = (() => {
       for (const a of list) {
         const c = h('<div class="card" style="margin-bottom:10px"><div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"><b style="font-family:var(--f-display);font-size:var(--t-l);flex:1"></b><span class="chip"></span></div><div class="hint m"></div><div class="md d" style="margin:8px 0"></div></div>');
         c.querySelector('b').textContent = a.title; const ch = c.querySelector('.chip'); ch.className = 'chip ' + (a.state === 'pendiente' ? 'wait' : a.state === 'aprobada' ? 'ok' : 'bad'); ch.textContent = a.state === 'pendiente' ? 'Pendiente' : a.state === 'aprobada' ? 'Aprobada' : 'Rechazada';
-        c.querySelector('.m').textContent = 'Pedida por ' + agentName(a.agentId) + ' · ' + fmtDT(a.createdAt) + (a.projectId ? ' · ' + projName(a.projectId) : '') + ({ nuevo_agente: ' · Nueva contratación', permiso: ' · Ampliación de permiso', accion: ' · Acción sensible' })[a.kind] + (a.decidedAt ? ' · decidida ' + fmtDT(a.decidedAt) : '');
+        c.querySelector('.m').textContent = 'Pedida por ' + agentName(a.agentId) + ' · ' + fmtDT(a.createdAt) + (a.projectId ? ' · ' + projName(a.projectId) : '') + ({ nuevo_agente: ' · Nueva contratación', permiso: ' · Ampliación de permiso', accion: ' · Acción sensible', integracion: ' · Cambio en una integración' })[a.kind] + (a.decidedAt ? ' · decidida ' + fmtDT(a.decidedAt) : '');
         let det = a.details || ''; if (a.kind === 'nuevo_agente' && a.payload) det += '\n\n**Propuesta:** ' + a.payload.name + ' — ' + a.payload.role + ' (' + (DEPT_NAMES[a.payload.dept] || a.payload.dept) + ')\n\n' + (a.payload.specialty || '') + (a.payload.instructions ? '\n\n_Instrucciones:_ ' + a.payload.instructions : '');
         if (a.kind === 'permiso' && a.payload) det += '\n\n**Permiso pedido:** ' + (PERMS[a.payload.permiso] || a.payload.permiso);
         c.querySelector('.d').innerHTML = md(det);
-        if (a.kind === 'accion') c.append(h('<div class="note">Aprobar no ejecuta nada fuera de La Cueva: no hay integraciones conectadas. El agente dejará el trabajo listo y te dirá el paso exacto que debes dar tú.</div>'));
+        if (a.kind === 'accion') c.append(h('<div class="note">Aprobar no ejecuta nada fuera de La Cueva. El agente dejará el trabajo listo y te dirá el paso exacto que debes dar tú.</div>'));
+        if (a.kind === 'integracion' && a.state === 'pendiente') c.append(h('<div class="note"><b>Si apruebas, se ejecutará de verdad</b> en la tienda exactamente lo que ves arriba, una sola vez.</div>'));
+        if (a.kind === 'integracion' && a.execState) { const n = h('<div class="note"></div>'); n.textContent = a.execState === 'hecha' ? 'Ejecutado: ' + a.execResult : a.execState === 'fallida' ? 'No se pudo ejecutar: ' + (a.execError || '') : 'Ejecutando en la tienda…'; c.append(n); }
         if (a.note) { const n = h('<div class="hint"></div>'); n.textContent = 'Tu nota: ' + a.note; c.append(n); }
         if (a.state === 'pendiente') {
           const f = h('<div class="toolbar" style="margin-top:8px"><input class="search" style="flex:1;min-width:200px" placeholder="Nota para el agente (opcional)" aria-label="Nota"><button class="btn">Aprobar</button><button class="btn sec">Rechazar</button></div>');
@@ -309,6 +343,8 @@ const Panels = (() => {
       c.querySelector('b').textContent = i.name; const ch = c.querySelector('.chip');
       if (i.id === 'claude') { ch.className = 'chip ' + (okNow ? 'ok' : 'warn'); ch.textContent = okNow ? 'Operativa' : 'Pendiente de configuración'; }
       else if (LC_SERVER && i.id === 'openai') { ch.className = 'chip ' + (okNow ? 'ok' : 'warn'); ch.textContent = okNow ? 'Operativa' : 'Implementada, pendiente de configuración'; }
+      else if (LC_SERVER && i.id === 'web') { const okW = AI.provider === 'anthropic'; ch.className = 'chip ' + (okW ? 'ok' : 'warn'); ch.textContent = okW ? 'Operativa' : 'Solo con Anthropic API'; }
+      else if (LC_SERVER && i.id === 'shopify') { const n = Store.all('projects').filter(p => p.integrations && p.integrations.shopify).length; ch.className = 'chip ' + (n ? 'ok' : 'warn'); ch.textContent = n ? 'Conectada en ' + n + ' proyecto' + (n > 1 ? 's' : '') : 'Implementada, se conecta por proyecto'; }
       else { ch.className = 'chip plain'; ch.textContent = 'Pendiente de desarrollo'; }
       c.querySelector('.hint').textContent = LC_SERVER && i.id === 'openai' ? (okNow ? 'Los agentes usan OpenAI API desde el servidor con la clave guardada en Vercel.' : 'El servidor ya sabe usar OpenAI API: basta con crear la variable OPENAI_API_KEY en Vercel (y AI_PROVIDER=openai si también tienes clave de Anthropic).') : i.how;
       const need = LC_SERVER && i.id === 'openai' ? (okNow ? '' : 'Clave de OpenAI API con facturación en platform.openai.com. Una suscripción a ChatGPT no da acceso a la API.') : i.need; if (need) c.lastElementChild.innerHTML = '<b>Qué hace falta:</b> ' + esc(need); else c.lastElementChild.remove();
@@ -392,7 +428,10 @@ const Panels = (() => {
       ['Recuperación de contexto', 'lim', 'Por palabras clave. Búsqueda semántica: pendiente.'],
       ['Consumo y costes', 'op', 'Llamadas y tokens reales que devuelve el proveedor. Coste en euros si configuras el precio en Ajustes.'],
       ['Adjuntos', 'lim', 'Imágenes, texto, PDF y Word. Los PDF de imágenes los transcribe la IA una vez; el texto queda guardado (en un chat de proyecto, también en sus documentos). Las imágenes sueltas no se guardan en el servidor.'],
-      ['Integraciones externas (Gmail, Drive, Shopify, Meta, Google…)', 'dev', 'El servidor ya guarda credenciales de forma segura; cada integración se añadirá con permisos por proyecto y aprobación para acciones sensibles.'],
+      ['Búsqueda y lectura web', AI.provider === 'anthropic' ? 'op' : 'cfg', AI.provider === 'anthropic' ? 'Los agentes con permiso buscan en internet y leen páginas o PDF públicos, y citan las fuentes. 10 $ por cada 1.000 búsquedas, más tokens.' : 'Disponible solo con Anthropic API como proveedor.'],
+      ['Shopify', Store.all('projects').some(p => p.integrations && p.integrations.shopify) ? 'op' : 'cfg', 'Se conecta por proyecto (Proyectos → Integraciones). Lectura de tienda, productos y pedidos; los cambios se ejecutan solo al aprobarlos.'],
+      ['PDF: páginas como imágenes', 'op', 'Al adjuntar un PDF se guardan hasta 20 páginas como imagen; los agentes pueden verlas cuando el texto no basta.'],
+      ['Otras integraciones (Gmail, Drive, Meta, Google Ads…)', 'dev', 'Se añadirán con el mismo modelo: credenciales cifradas por proyecto y aprobación para lo sensible.'],
       ['Voz y reuniones visibles entre agentes', 'dev', 'Fase 5.'],
       ['Varios usuarios', 'dev', 'Hoy hay un único administrador.']
     ];
@@ -478,7 +517,7 @@ const Panels = (() => {
       if (t === 'perm') {
         const w = h('<div class="grid g2"><div class="card"><div class="sec-h" style="margin-top:0">Herramientas</div><div class="tl"></div></div><div class="card"><div class="sec-h" style="margin-top:0">Permisos</div><div class="pl"></div><div class="sec-h">Límites de autonomía</div><div class="f2"><label class="f">Colaboraciones por tarea<input type="number" min="0" max="5" data-lk="maxColab"></label><label class="f">Subtareas por tarea<input type="number" min="0" max="5" data-lk="maxSubtareas"></label></div></div></div>');
         const isDir = draft.dept === 'DIR';
-        for (const [k, tl] of Object.entries(TOOLS)) { if (tl.who === 'director' && !isDir) continue; if (tl.who === 'specialist' && isDir) continue; const l = h('<label class="chk"><input type="checkbox"> <span></span></label>'); l.querySelector('span').textContent = tl.label + (draft.perms[tl.perm] ? '' : ' (requiere permiso: ' + PERMS[tl.perm] + ')'); const cb = l.querySelector('input'); cb.checked = (draft.tools || []).includes(k); cb.onchange = () => { draft.tools = (draft.tools || []).filter(x => x !== k); if (cb.checked) draft.tools.push(k); }; w.querySelector('.tl').append(l); }
+        for (const [k, tl] of Object.entries(TOOLS)) { if (tl.who === 'director' && !isDir) continue; if (tl.who === 'specialist' && isDir) continue; const l = h('<label class="chk"><input type="checkbox"> <span></span></label>'); l.querySelector('span').textContent = tl.label + (draft.perms[tl.perm] ? '' : ' (requiere permiso: ' + PERMS[tl.perm] + ')'); const cb = l.querySelector('input'); cb.checked = tl.always ? !(draft.toolsOff || []).includes(k) : (draft.tools || []).includes(k); cb.onchange = () => { if (tl.always) { draft.toolsOff = (draft.toolsOff || []).filter(x => x !== k); if (!cb.checked) draft.toolsOff.push(k); return; } draft.tools = (draft.tools || []).filter(x => x !== k); if (cb.checked) draft.tools.push(k); }; w.querySelector('.tl').append(l); }
         for (const [k, lbl] of Object.entries(PERMS)) { if (['planificar', 'programar', 'contratar', 'supervisar'].includes(k) && !isDir) continue; if (k === 'delegar' && isDir) continue; const l = h('<label class="chk"><input type="checkbox"> <span></span></label>'); l.querySelector('span').textContent = lbl; const cb = l.querySelector('input'); cb.checked = !!draft.perms[k]; cb.onchange = () => { draft.perms[k] = cb.checked; }; w.querySelector('.pl').append(l); }
         w.querySelector('.pl').append(h('<div class="note">Las acciones sensibles (' + SENSITIVE.slice(0, 4).join(', ').toLowerCase() + '…) siempre requieren tu aprobación, tenga los permisos que tenga.</div>'));
         bind(w, draft); b.append(w, bar);

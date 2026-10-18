@@ -1,0 +1,32 @@
+// Capturas en móvil de la versión con backend
+const { spawn } = require('child_process');
+const { chromium, devices } = require('playwright-core');
+const path = require('path');
+const PORT = 3223, URL = 'http://localhost:' + PORT;
+const env = Object.assign({}, process.env, { PORT: String(PORT), ADMIN_PASSWORD: 'clave-local-de-prueba', LC_ALLOW_MOCK: '1', AI_PROVIDER: 'mock' });
+delete env.DATABASE_URL; delete env.POSTGRES_URL;
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+(async () => {
+  const srv = spawn('node', ['server/dev.js'], { cwd: path.join(__dirname, '..'), env, stdio: ['ignore', 'pipe', 'pipe'] });
+  let out = ''; srv.stdout.on('data', d => { out += d; });
+  for (let i = 0; i < 50 && !/La Cueva en/.test(out); i++) await sleep(200);
+  const b = await chromium.launch({ executablePath: '/opt/pw-browsers/chromium', args: ['--no-sandbox'] });
+  const dev = process.argv[2] === 'android' ? devices['Pixel 7'] : devices['iPhone 13'];
+  const p = await (await b.newContext(Object.assign({}, dev, { browserName: undefined, defaultBrowserType: undefined }))).newPage();
+  const errs = []; p.on('pageerror', e => { errs.push(e.message); console.log('PAGEERR', e.message); });
+  const shot = n => p.screenshot({ path: path.join(__dirname, 'm_' + n + '.png') });
+  const step = async (n, fn) => { try { await fn(); console.log('OK', n); } catch (e) { console.log('FAIL', n, e.message); } };
+  await p.goto(URL); await p.waitForSelector('#lc-gate input'); await shot('1_login');
+  await p.fill('#lc-gate input', 'clave-local-de-prueba'); await p.tap('#lc-gate button');
+  await p.waitForFunction(() => !document.querySelector('#lc-gate') && window.__lc, null, { timeout: 15000 }); await p.waitForTimeout(1200);
+  await shot('2_home');
+  const m = await p.evaluate(() => ({ vw: innerWidth, sw: document.documentElement.scrollWidth, hdr: document.querySelector('#top').getBoundingClientRect().height }));
+  console.log('metrics', JSON.stringify(m));
+  await step('chat', async () => { await p.tap('#fab'); await p.waitForTimeout(400); await p.fill('#c-in', 'Hola'); await p.tap('#c-send'); await p.waitForTimeout(1500); await shot('3_chat'); });
+  await step('cerrar chat', async () => { await p.evaluate(() => UI.close && UI.close('chat')); await p.waitForTimeout(300); });
+  await step('directorio', async () => { await p.evaluate(() => UI.open('dir')); await p.waitForTimeout(400); await shot('4_dir'); await p.evaluate(() => UI.close('dir')); });
+  for (const pn of ['projects', 'control', 'approvals', 'settings', 'status']) await step(pn, async () => { await p.evaluate(x => Panels.open(x), pn); await p.waitForTimeout(500); await shot('5_' + pn); await p.evaluate(() => Panels.close()); });
+  await step('ficha', async () => { await p.evaluate(() => Panels.agent('alex')); await p.waitForTimeout(400); await shot('6_ficha'); await p.evaluate(() => Panels.close()); });
+  console.log('errors', errs.length);
+  await b.close(); srv.kill();
+})();

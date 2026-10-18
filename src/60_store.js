@@ -8,7 +8,7 @@ const Store = (() => {
   const EAGER = ['config', 'agents', 'projects', 'convs', 'plans', 'tasks', 'approvals', 'rules', 'notes', 'deliverables', 'schedules', 'pdocs'];
   const DAILY = ['activity', 'usage'];   // un documento por día: se cargan los últimos 30
   const failed = new Set(); let truncatedCols = [];
-  const LAZY = ['chunks', 'dtext', 'tthread', 'ptext'];
+  const LAZY = ['chunks', 'dtext', 'tthread', 'ptext', 'pimg'];
   const mem = {}; for (const c of EAGER.concat(LAZY, DAILY)) mem[c] = new Map();
   let db = null, mode = 'memory', lastError = null;
   const queue = new Map(); let pumping = false;
@@ -152,7 +152,7 @@ const Store = (() => {
     const out = { app: 'La Cueva', version: 1, exportedAt: new Date().toISOString(), data: {} };
     for (const d of all('deliverables')) await load('dtext', d.id);
     for (const cv of all('convs')) for (let n = 0; n < (cv.chunks || 1); n++) await load('chunks', cv.id + '-' + n);
-    for (const p of all('pdocs')) await load('ptext', p.id);
+    for (const p of all('pdocs')) { await load('ptext', p.id); for (let n = 1; n <= (p.pages || 0); n++) await load('pimg', p.id + '-p' + n); }
     for (const c of EAGER.concat(LAZY, DAILY)) out.data[c] = all(c);
     return out;
   }

@@ -69,6 +69,21 @@ const T = ops => runOps(ops, { allowLease: true });
   ok('bucle de herramientas: el modelo pide una herramienta, se ejecuta y continúa');
 }
 
+// --- búsqueda web: turnos en pausa y bloques originales del proveedor se devuelven tal cual
+{
+  const seen = []; let n = 0;
+  const stub = async req => { seen.push(JSON.parse(JSON.stringify(req.messages))); n++;
+    if (n === 1) return { text: 'Buscando…', toolCalls: [], stop: 'pause', usage: { in: 1, out: 1, searches: 1 }, raw: [{ type: 'server_tool_use', id: 's1', name: 'web_search', input: { query: 'x' } }] };
+    if (n === 2) return { text: '', toolCalls: [{ id: 't1', name: 'ver', input: {} }], stop: 'tool_use', usage: { in: 1, out: 1 }, raw: [{ type: 'web_search_tool_result', tool_use_id: 's1', content: [] }, { type: 'tool_use', id: 't1', name: 'ver', input: {} }] };
+    return { text: 'Listo con fuentes', toolCalls: [], stop: 'end', usage: { in: 1, out: 1 } }; };
+  const sample = R.makeSample(stub);
+  const r = await sample('busca algo', { web: true, tools: [{ name: 'ver', description: '', inputSchema: { type: 'object', properties: {} }, execute: async () => ({ text: 'pags', images: [{ mediaType: 'image/jpeg', data: 'AAAA' }] }) }] });
+  assert.match(r.text, /Listo con fuentes/); assert.equal(r.usage.searches, 1);
+  const last = seen[2]; assert.equal(last[1].content[0].type, 'provider_raw'); assert.equal(last[2].content[0].type, 'provider_raw');
+  assert.equal(last[3].content[0].images.length, 1);
+  ok('búsqueda web: pausa, bloques del proveedor intactos y herramientas que devuelven imágenes');
+}
+
 // --- flujo completo: navegador (observador) crea un plan con Daniel; el worker lo ejecuta en segundo plano
 {
   const bdb = R.makeRemoteDb(T, { observer: true, pollMs: 300, full: ['config', 'agents', 'projects', 'convs', 'plans', 'tasks', 'approvals', 'rules', 'notes', 'deliverables', 'schedules', 'pdocs', 'usage', 'activity'] });

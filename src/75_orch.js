@@ -272,6 +272,9 @@ const Orch = (() => {
 
   function approvalNote(a) {
     const ok = a.state === 'aprobada', note = a.note;
+    if (a.kind === 'integracion') return ok
+      ? (a.execState === 'hecha' ? 'El administrador APROBÓ «' + a.title + '» y el cambio YA SE HA EJECUTADO en la tienda. Resultado: ' + (a.execResult || '') + '. ' + (note ? 'Nota: ' + note + '. ' : '') + 'Entrega el resultado final.' : 'El administrador APROBÓ «' + a.title + '», pero al ejecutarlo falló: ' + (a.execError || 'error desconocido') + '. ' + (note ? 'Nota: ' + note + '. ' : '') + 'Explica el problema y entrega el resultado final sin reintentarlo.')
+      : 'El administrador RECHAZA «' + a.title + '». ' + (note ? 'Motivo: ' + note + '. ' : '') + 'No lo propongas de nuevo; ajusta el trabajo y entrega el resultado final.';
     return ok ? 'El administrador APRUEBA la acción «' + a.title + '». ' + (note ? 'Nota: ' + note + '. ' : '') + 'Recuerda que no puedes ejecutarla fuera de La Cueva: deja el entregable listo y explica el paso exacto que él debe dar. Entrega el resultado final.'
       : 'El administrador RECHAZA la acción «' + a.title + '». ' + (note ? 'Motivo: ' + note + '. ' : '') + 'No la plantees de nuevo; ajusta el trabajo y entrega el resultado final.';
   }
@@ -287,9 +290,27 @@ const Orch = (() => {
     Activity.log('aprobacion', (ok ? 'Aprobaste' : 'Rechazaste') + ': ' + a.title, { agentId: a.agentId, taskId: a.taskId, projectId: a.projectId });
     if (a.kind === 'nuevo_agente' && ok) { const ag = Roster.create(a.payload); View.setAgents(Roster.enabled()); Activity.log('equipo', 'Nueva contratación habilitada: ' + ag.name + ' (' + ag.role + ')', { agentId: ag.id }); }
     if (a.kind === 'permiso' && ok && a.payload && Object.hasOwn(PERMS, a.payload.permiso)) { const ag = Roster.get(a.agentId); if (ag) { ag.perms[a.payload.permiso] = true; Roster.save(ag); } }
-    if (a.taskId) { const t = T(a.taskId); if (t && t.state === 'esperando_aprobacion') { setTask(t, { state: 'en_cola', resume: 'approval', resumeNote: approvalNote(Store.get('approvals', id)) }, ok ? 'Aprobación concedida' : 'Aprobación rechazada'); schedulePump(); } }
-    if (a.convId && !a.taskId) Chat.post(a.convId, { role: 'system', text: (ok ? 'Has **aprobado**' : 'Has **rechazado**') + ': ' + a.title + (note ? ' — ' + note : '') });
-    Bus.emit('approvals'); Bus.emit('orch');
+    const resume = () => {
+      const ap = Store.get('approvals', id);
+      if (a.taskId) { const t = T(a.taskId); if (t && t.state === 'esperando_aprobacion') { setTask(t, { state: 'en_cola', resume: 'approval', resumeNote: approvalNote(ap) }, ok ? 'Aprobación concedida' : 'Aprobación rechazada'); schedulePump(); } }
+      if (a.convId && !a.taskId) Chat.post(a.convId, { role: 'system', text: (ok ? 'Has **aprobado**' : 'Has **rechazado**') + ': ' + a.title + (note ? ' — ' + note : '') + (ap && ap.kind === 'integracion' && ok ? (ap.execState === 'hecha' ? '\n\n**Ejecutado:** ' + ap.execResult : '\n\n**No se pudo ejecutar:** ' + (ap.execError || 'error desconocido')) : '') });
+      Bus.emit('approvals'); Bus.emit('orch');
+    };
+    // integraciones: al aprobar, el servidor ejecuta exactamente lo propuesto (una sola vez) y luego sigue la tarea
+    if (a.kind === 'integracion' && ok && window.LCIntegrations) {
+      Store.patch('approvals', id, { execState: 'pendiente' });
+      (async () => {
+        await Store.flush();
+        let r; try { r = await window.LCIntegrations.execute(id); } catch (e) { r = { state: 'fallida', result: (e && e.message) || 'error' }; }
+        Store.patch('approvals', id, r.state === 'hecha' ? { execState: 'hecha', execResult: r.result, execAt: Date.now() } : { execState: 'fallida', execError: r.result, execAt: Date.now() });
+        Activity.log('integracion', (r.state === 'hecha' ? 'Ejecutado en Shopify: ' : 'Falló en Shopify: ') + trunc(String(r.result || ''), 120), { projectId: a.projectId, agentId: a.agentId });
+        toast(r.state === 'hecha' ? 'Hecho en Shopify: ' + trunc(String(r.result || ''), 90) : 'No se pudo ejecutar en Shopify: ' + trunc(String(r.result || ''), 90), r.state !== 'hecha');
+        resume();
+      })();
+      return;
+    }
+    if (a.kind === 'integracion' && ok) Store.patch('approvals', id, { execState: 'fallida', execError: 'Las integraciones solo funcionan en la versión con servidor.' });
+    resume();
   }
 
   /* ---------- recuperación al abrir ---------- */
@@ -352,7 +373,7 @@ const Orch = (() => {
 const Tools = (() => {
   const S = (props, req) => ({ type: 'object', properties: props, required: req || [] });
   const str = d => ({ type: 'string', description: d });
-  function allowed(agent, name) { const t = TOOLS[name]; return t && agent.perms.herramientas && (agent.tools || []).includes(name) && agent.perms[t.perm]; }
+  function allowed(agent, name) { const t = TOOLS[name]; return t && agent.perms.herramientas && (t.always ? !(agent.toolsOff || []).includes(name) : (agent.tools || []).includes(name)) && agent.perms[t.perm]; }
   function ev(ctx, name, input, result) { ctx.events.push({ name, label: TOOLS[name] ? TOOLS[name].label : name, input: trunc(JSON.stringify(input), 300), result: trunc(typeof result === 'string' ? result : JSON.stringify(result), 400), ts: Date.now() }); Bus.emit('tool:event', { ctx, name }); }
   function wrap(ctx, name, fn) { return async (input) => { try { const r = await fn(input || {}); ev(ctx, name, input, r); return r; } catch (e) { ev(ctx, name, input, 'Error: ' + (e.message || e)); throw e; } }; }
   function build(agent, ctx) {
@@ -377,6 +398,36 @@ const Tools = (() => {
       if (ctx.signals) ctx.signals.approval = a.id;
       return 'Solicitud enviada (' + a.id + '). ' + (ctx.task ? 'Termina tu respuesta con el trabajo preparado; continuarás cuando el administrador decida.' : 'El administrador la verá en Aprobaciones.');
     });
+    // páginas de un PDF del proyecto como imágenes (la IA las ve, no solo el texto)
+    if (pid && Store.all('pdocs').some(d => d.projectId === pid && d.pages)) add('ver_paginas_documento', 'Muestra como imágenes páginas de un PDF del proyecto (fotos, diseño, gráficos, logotipos). Úsala cuando el texto no basta. Máximo 4 páginas por llamada.', S({ documento: str('Nombre del documento'), paginas: str('Páginas, p. ej. «1-4» o «2,5»') }, ['documento']), async i => {
+      const name = String(i.documento || '').toLowerCase().trim();
+      const docs = Store.all('pdocs').filter(d => d.projectId === pid && d.pages);
+      const d = docs.find(x => x.name.toLowerCase() === name || x.id === i.documento) || docs.find(x => x.name.toLowerCase().includes(name));
+      if (!d) return 'No hay ningún PDF con páginas guardadas con ese nombre. Disponibles: ' + docs.map(x => x.name).join(', ');
+      const want = []; for (const part of String(i.paginas || '1-4').split(',')) { const m = part.trim().match(/^(\d+)(?:\s*-\s*(\d+))?$/); if (m) { const a = +m[1], b = +(m[2] || m[1]); for (let n = a; n <= b && want.length < 4; n++) if (n >= 1 && n <= d.pages) want.push(n); } }
+      if (!want.length) return 'Páginas no válidas: el documento tiene ' + d.pages + ' páginas guardadas.';
+      const images = [];
+      for (const n of want) { const pg = await Store.load('pimg', d.id + '-p' + n); if (pg && pg.data) images.push({ mediaType: pg.mediaType || 'image/jpeg', data: pg.data }); }
+      if (!images.length) return 'No se pudieron cargar las imágenes de esas páginas.';
+      return { text: 'Páginas ' + want.join(', ') + ' de «' + d.name + '» (' + d.pages + ' en total):', images };
+    });
+    // Shopify del proyecto: lectura directa; escritura solo con aprobación
+    const shop = LC_SERVER && ctx.project && ctx.project.integrations && ctx.project.integrations.shopify && window.LCIntegrations;
+    if (shop) {
+      add('shopify_consultar', 'Consulta la tienda Shopify conectada a este proyecto (solo lectura). Operaciones: estado_tienda, buscar_productos (consulta, limite), ver_producto (id), resumen_pedidos (dias).', S({ operacion: { type: 'string', enum: ['estado_tienda', 'buscar_productos', 'ver_producto', 'resumen_pedidos'] }, consulta: str('Texto a buscar (buscar_productos)'), id: str('gid://shopify/Product/… (ver_producto)'), limite: { type: 'integer' }, dias: { type: 'integer' } }, ['operacion']), async i => {
+        const r = await window.LCIntegrations.read(pid, String(i.operacion), { consulta: i.consulta, id: i.id, limite: i.limite, dias: i.dias });
+        return trunc(JSON.stringify(r), 12000);
+      });
+      add('shopify_proponer_cambio', 'Propone un cambio en la tienda Shopify del proyecto. NO se ejecuta hasta que el administrador lo aprueba; entonces se aplica exactamente lo propuesto. Acciones: crear_producto_borrador (titulo, descripcion_html, tipo, proveedor, etiquetas, seo_*), actualizar_producto (producto_id + campos a cambiar), cambiar_estado_producto (producto_id, estado ACTIVE/DRAFT/ARCHIVED; ACTIVE publica).', S({ accion: { type: 'string', enum: ['crear_producto_borrador', 'actualizar_producto', 'cambiar_estado_producto'] }, producto_id: str('gid://shopify/Product/… (para actualizar o cambiar estado)'), titulo: str('Título'), descripcion_html: str('Descripción en HTML'), tipo: str('Tipo de producto'), proveedor: str('Proveedor o marca'), etiquetas: { type: 'array', items: { type: 'string' } }, seo_titulo: str('Título SEO'), seo_descripcion: str('Meta descripción'), estado: { type: 'string', enum: ['ACTIVE', 'DRAFT', 'ARCHIVED'] }, motivo: str('Por qué propones el cambio') }, ['accion', 'motivo']), async i => {
+        if (ctx.signals && ctx.signals.approval) return 'Ya hay una aprobación pendiente en esta tarea.';
+        const params = {}; for (const k of ['producto_id', 'titulo', 'descripcion_html', 'tipo', 'proveedor', 'etiquetas', 'seo_titulo', 'seo_descripcion', 'estado']) if (i[k] != null && i[k] !== '') params[k] = k === 'descripcion_html' ? trunc(String(i[k]), 20000) : i[k];
+        const label = { crear_producto_borrador: 'Crear producto en borrador', actualizar_producto: 'Actualizar producto', cambiar_estado_producto: 'Cambiar estado de producto' }[i.accion] || i.accion;
+        const det = '**Tienda:** ' + ctx.project.integrations.shopify.shop + '\n\n**Motivo:** ' + trunc(String(i.motivo || ''), 600) + '\n\n**Cambio exacto que se aplicará:**\n' + Object.entries(params).map(([k, v]) => '- ' + k + ': ' + trunc(Array.isArray(v) ? v.join(', ') : String(v).replace(/<[^>]+>/g, ' '), 400)).join('\n') + (i.accion === 'cambiar_estado_producto' && String(i.estado) === 'ACTIVE' ? '\n\n**Atención:** esto PUBLICA el producto en la tienda.' : '');
+        const a = Orch.requestApproval({ kind: 'integracion', agentId: agent.id, taskId: ctx.task ? ctx.task.id : null, convId: ctx.task ? null : ctx.convId, projectId: pid, title: 'Shopify · ' + label + (params.titulo ? ': ' + trunc(String(params.titulo), 80) : ''), details: det, payload: { provider: 'shopify', action: String(i.accion), params } });
+        if (ctx.signals) ctx.signals.approval = a.id;
+        return 'Propuesta enviada a Aprobaciones (' + a.id + '). No se ha cambiado nada en la tienda todavía.' + (ctx.task ? ' Termina tu respuesta; continuarás cuando el administrador decida.' : '');
+      });
+    }
     if (ctx.mode === 'task') {
       add('pedir_colaboracion', 'Pide a otro especialista una parte concreta del trabajo. Recibirás su respuesta y después entregarás tu resultado final. Usa los id del equipo.', S({ agente: str('id del especialista'), peticion: str('Qué necesitas exactamente y para qué') }, ['agente', 'peticion']), async i => collab(agent, ctx, String(i.agente || '').toLowerCase().trim(), String(i.peticion || ''), true));
       add('crear_subtarea', 'Crea una subtarea independiente para otro especialista dentro del mismo plan, sin esperar su resultado (Daniel la tendrá en cuenta al consolidar).', S({ agente: str('id del especialista'), titulo: str('Título corto'), instrucciones: str('Instrucciones claras') }, ['agente', 'titulo', 'instrucciones']), async i => collab(agent, ctx, String(i.agente || '').toLowerCase().trim(), String(i.instrucciones || ''), false, String(i.titulo || '')));

@@ -24,9 +24,13 @@ const app = 'const LOGO_SRC = "/logo.png";\n' + appJs + '\n';
 const build = crypto.createHash('sha256').update(app).digest('hex').slice(0, 12);
 const head = S('00_head.html').replace('</style>', S('server_gate.css') + '\n</style>') + '\n<link rel="icon" href="/logo.png">';
 const remote = fs.readFileSync(path.join(root, 'shared/remote.cjs'), 'utf8');
-const index = head + '\n' + S('05_body.html') + '\n<script>window.LC_BUILD = "' + build + '";</script>\n<script>\n' + remote + '\n</script>\n<script>\n' + S('server_boot.js') + '\n</script>\n';
+// documento completo (en Claude lo envuelve el propio artefacto; aquí hace falta para móvil y modo estándar)
+const skeleton = '<!doctype html>\n<html lang="es">\n<head>\n<meta charset="utf-8">\n<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">\n<meta name="theme-color" content="#344C3D">\n<meta name="apple-mobile-web-app-capable" content="yes">\n<meta name="mobile-web-app-capable" content="yes">\n<meta name="apple-mobile-web-app-title" content="La Cueva">\n<link rel="apple-touch-icon" href="/icon.png">\n<link rel="manifest" href="/manifest.json">\n';
+const index = skeleton + head + '\n</head>\n<body>\n' + S('05_body.html') + '\n<script>window.LC_BUILD = "' + build + '";</script>\n<script>\n' + remote + '\n</script>\n<script>\n' + S('server_boot.js') + '\n</script>\n</body>\n</html>\n';
 fs.writeFileSync(path.join(pub, 'index.html'), index);
 fs.writeFileSync(path.join(pub, 'app.js'), app);
 fs.copyFileSync(path.join(root, 'assets/logo.png'), path.join(pub, 'logo.png'));
+if (fs.existsSync(path.join(root, 'assets/icon.png'))) fs.copyFileSync(path.join(root, 'assets/icon.png'), path.join(pub, 'icon.png'));
+fs.writeFileSync(path.join(pub, 'manifest.json'), JSON.stringify({ name: 'La Cueva', short_name: 'La Cueva', start_url: '/', display: 'standalone', background_color: '#344C3D', theme_color: '#344C3D', lang: 'es', icons: [{ src: '/icon.png', sizes: '512x512', type: 'image/png', purpose: 'any maskable' }] }, null, 2));
 
 console.log('artefacto', (artifact.length / 1024).toFixed(0) + ' KB · servidor', ((index.length + app.length) / 1024).toFixed(0) + ' KB · build ' + build);

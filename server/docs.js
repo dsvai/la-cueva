@@ -6,7 +6,7 @@
    ============================================================ */
 import { q, tx, ensureSchema } from './db.js';
 
-export const COLLECTIONS = new Set(['config', 'agents', 'projects', 'convs', 'plans', 'tasks', 'approvals', 'rules', 'notes', 'deliverables', 'schedules', 'pdocs', 'chunks', 'dtext', 'tthread', 'ptext', 'activity', 'usage', 'locks']);
+export const COLLECTIONS = new Set(['config', 'agents', 'projects', 'convs', 'plans', 'tasks', 'approvals', 'rules', 'notes', 'deliverables', 'schedules', 'pdocs', 'chunks', 'dtext', 'tthread', 'ptext', 'activity', 'usage', 'pimg', 'locks']);
 const ID_RE = /^[\w.~:@+-]{1,160}$/;
 const FIELD_RE = /^[A-Za-z_][\w]{0,60}$/;
 const MAX_DOC_BYTES = 1024 * 1024;

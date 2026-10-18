@@ -73,6 +73,21 @@
       kickBusy = false;
     }, 1200);
   }
+  async function integ(body) {
+    let r; try { r = await fetch('/api/integrations', { method: 'POST', credentials: 'same-origin', headers: { 'content-type': 'application/json', 'x-lc': '1' }, body: JSON.stringify(body) }); }
+    catch (_) { throw new Error('Sin conexión con el servidor.'); }
+    if (r.status === 401) { sessionLost(); throw new Error('La sesión ha caducado.'); }
+    const j = await r.json().catch(() => ({}));
+    if (!j.ok) throw new Error(j.message || 'No se pudo completar la operación.');
+    return j.result;
+  }
+  window.LCIntegrations = {
+    read: (projectId, op, params) => integ({ action: 'read', projectId, op, params }),
+    connect: (projectId, provider, data) => integ(Object.assign({}, data, { action: 'connect', projectId, provider })),
+    disconnect: (projectId, provider) => integ({ action: 'disconnect', projectId, provider }),
+    list: projectId => integ({ action: 'list', projectId }),
+    execute: approvalId => integ({ action: 'execute', approvalId })
+  };
   window.LCServer = {
     kick,
     async logout() { try { await fetch('/api/session', { method: 'DELETE', credentials: 'same-origin', headers: { 'x-lc': '1' } }); } catch (_) { } location.reload(); },

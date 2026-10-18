@@ -35,27 +35,34 @@ const DocRead = (() => {
       pages.push(out.filter(Boolean).join('\n').replace(/[ \t]+/g, ' '));
       if (progress) progress('Leyendo página ' + i + ' de ' + doc.numPages);
     }
-    const chars = pages.join('').replace(/\s/g, '').length;
-    if (chars / Math.max(1, doc.numPages) >= 120) return { text: pages.map((t, i) => '[Página ' + (i + 1) + ']\n' + t).join('\n\n'), method: 'texto', pages: doc.numPages };
-    // casi sin texto: páginas como imágenes para que la IA las lea
-    if (AI.status !== 'ok' || !AI.canImages) return { text: pages.join('\n\n'), method: 'texto', pages: doc.numPages, note: 'El PDF es casi todo imágenes y en esta vista la IA no puede leer imágenes: solo se ha extraído el poco texto que contiene.' };
-    const max = Math.min(doc.numPages, 16), imgs = [];
+    // páginas como imágenes (máx. 20): la IA puede verlas, no solo leer el texto
+    const max = Math.min(doc.numPages, 20), pageBlobs = [];
     for (let i = 1; i <= max; i++) {
-      const pg = await doc.getPage(i); const vp0 = pg.getViewport({ scale: 1 }); const scale = Math.min(2, 1400 / vp0.width);
-      const vp = pg.getViewport({ scale }); const c = document.createElement('canvas'); c.width = Math.ceil(vp.width); c.height = Math.ceil(vp.height);
-      await pg.render({ canvasContext: c.getContext('2d'), viewport: vp }).promise;
-      imgs.push(await new Promise(r => c.toBlob(b => r(b), 'image/jpeg', 0.82)));
-      if (progress) progress('Preparando página ' + i + ' de ' + max);
+      try {
+        const pg = await doc.getPage(i); const vp0 = pg.getViewport({ scale: 1 }); const scale = Math.min(2, 1100 / vp0.width);
+        const vp = pg.getViewport({ scale }); const c = document.createElement('canvas'); c.width = Math.ceil(vp.width); c.height = Math.ceil(vp.height);
+        const cx = c.getContext('2d'); cx.fillStyle = '#fff'; cx.fillRect(0, 0, c.width, c.height);
+        await pg.render({ canvasContext: cx, viewport: vp }).promise;
+        let q = 0.72, b = await new Promise(r => c.toBlob(x => r(x), 'image/jpeg', q));
+        while (b && b.size > 160000 && q > 0.4) { q -= 0.12; b = await new Promise(r => c.toBlob(x => r(x), 'image/jpeg', q)); }
+        if (b) pageBlobs.push(b);
+        if (progress) progress('Preparando página ' + i + ' de ' + max);
+      } catch (e) { break; }
     }
+    const chars = pages.join('').replace(/\s/g, '').length;
+    const pagesNote = doc.numPages > max ? 'Se guardan como imagen las primeras ' + max + ' de ' + doc.numPages + ' páginas.' : '';
+    if (chars / Math.max(1, doc.numPages) >= 120) return { text: pages.map((t, i) => '[Página ' + (i + 1) + ']\n' + t).join('\n\n'), method: 'texto', pages: doc.numPages, pageBlobs, note: pagesNote };
+    // casi sin texto (p. ej. un media kit hecho de imágenes): la IA transcribe las páginas una vez
+    if (AI.status !== 'ok' || !AI.canImages || !pageBlobs.length) return { text: pages.join('\n\n'), method: 'texto', pages: doc.numPages, pageBlobs, note: 'El PDF es casi todo imágenes y en esta vista la IA no puede leer imágenes: solo se ha extraído el poco texto que contiene.' };
     const per = Math.max(1, Math.min(4, (AI.limits && AI.limits.images && AI.limits.images.maxCount) || 4));
     const reader = Object.assign({}, Roster.get('daniel'), { tier: 'default', model: '' });
     const parts = [];
-    for (let i = 0; i < imgs.length; i += per) {
-      if (progress) progress('La IA está leyendo las páginas ' + (i + 1) + '–' + Math.min(imgs.length, i + per) + ' de ' + imgs.length);
-      const r = await AI.call({ agent: reader, input: 'Transcribe fielmente TODO el texto visible en estas páginas de un documento (páginas ' + (i + 1) + ' a ' + Math.min(imgs.length, i + per) + ' de «' + String(file.name).replace(/["<>]/g, ' ') + '»), en su idioma original y en orden. Conserva cifras, nombres, fechas, precios y enlaces exactamente como aparecen. Después de cada página, añade una línea «[Visual: …]» que describa brevemente las imágenes, gráficos o logotipos relevantes. Marca con [ilegible] lo que no se pueda leer. No resumas, no interpretes y no añadas nada que no esté en las páginas. Empieza cada página con «[Página N]».', images: imgs.slice(i, i + per), kind: 'chat', label: 'Leyendo «' + trunc(file.name, 40) + '»', ignoreDaily: false });
+    for (let i = 0; i < pageBlobs.length; i += per) {
+      if (progress) progress('La IA está leyendo las páginas ' + (i + 1) + '–' + Math.min(pageBlobs.length, i + per) + ' de ' + pageBlobs.length);
+      const r = await AI.call({ agent: reader, input: 'Transcribe fielmente TODO el texto visible en estas páginas de un documento (páginas ' + (i + 1) + ' a ' + Math.min(pageBlobs.length, i + per) + ' de «' + String(file.name).replace(/["<>]/g, ' ') + '»), en su idioma original y en orden. Conserva cifras, nombres, fechas, precios y enlaces exactamente como aparecen. Después de cada página, añade una línea «[Visual: …]» que describa brevemente las imágenes, gráficos o logotipos relevantes. Marca con [ilegible] lo que no se pueda leer. No resumas, no interpretes y no añadas nada que no esté en las páginas. Empieza cada página con «[Página N]».', images: pageBlobs.slice(i, i + per), kind: 'chat', label: 'Leyendo «' + trunc(file.name, 40) + '»', noWeb: true });
       parts.push(r.text);
     }
-    return { text: parts.join('\n\n'), method: 'lectura con IA', pages: doc.numPages, note: doc.numPages > max ? 'Solo se han leído las primeras ' + max + ' de ' + doc.numPages + ' páginas.' : '' };
+    return { text: parts.join('\n\n'), method: 'lectura con IA', pages: doc.numPages, pageBlobs, note: pagesNote };
   }
   async function docx(file) {
     await script(MAMMOTH);
@@ -96,6 +103,7 @@ const Files = (() => {
           const t = String(r.text || '').trim();
           if (!t) throw new Error('El documento no contiene texto legible.');
           att.kind = 'text'; att.doc = true; att.text = t.slice(0, 60000); att.cut = t.length > 60000; att.method = r.method; att.pages = r.pages || null; att.fullLen = t.length;
+          if (r.pageBlobs && r.pageBlobs.length) att.pageBlobs = r.pageBlobs;
           if (t.length > 60000) att.full = t.slice(0, 200000);
           if (r.note) att.note = r.note;
         } catch (e) {
@@ -130,7 +138,7 @@ const Chat = (() => {
     if (ch.msgs.length >= CH_MAX || JSON.stringify(ch).length > CH_BYTES) { cv.chunks = (cv.chunks || 1) + 1; ch = { id: cv.id + '-' + (cv.chunks - 1), convId: cv.id, msgs: [] }; }
     return ch;
   }
-  function clean(m) { const c = Object.assign({}, m); if (c.att) c.att = c.att.map(a => { const x = Object.assign({}, a); delete x.blob; delete x.local; return x; }); return c; }
+  function clean(m) { const c = Object.assign({}, m); if (c.att) c.att = c.att.map(a => { const x = Object.assign({}, a); delete x.blob; delete x.local; delete x.pageBlobs; return x; }); return c; }
   /* si el último bloque de mensajes aún no está cargado (p. ej. un aviso del orquestador en una
      conversación que no has abierto), se carga antes de añadir, para no sobrescribir el historial */
   const pendingChunk = new Map();
@@ -166,8 +174,16 @@ const Chat = (() => {
   function serialize(m) {
     let t = m.text || '';
     const safe = x => String(x || '').replace(/["<>]/g, ' ');
-    if (m.att && m.att.length) t += '\n\n' + m.att.map(a => a.kind === 'text' ? '<documento nombre="' + safe(a.name) + '"' + (a.savedDoc ? ' guardado_en_documentos_del_proyecto="sí"' : '') + '>\n' + String(a.text || '').replace(/<\/?documento/gi, '[documento]') + (a.cut ? '\n[documento recortado]' : '') + '\n</documento>' : '[Adjunto: ' + a.name + (a.kind === 'image' ? ' (imagen)' : '') + (a.note ? ' — ' + a.note : '') + ']').join('\n');
+    if (m.att && m.att.length) t += '\n\n' + m.att.map(a => a.kind === 'text' ? '<documento nombre="' + safe(a.name) + '"' + (a.savedDoc ? ' guardado_en_documentos_del_proyecto="sí"' : '') + '>\n' + String(a.text || '').replace(/<\/?documento/gi, '[documento]') + (a.cut ? '\n[documento recortado]' : '') + '\n</documento>' + (a.pageBlobs && a.pageBlobs.length ? '\n[Las primeras páginas de este PDF se adjuntan también como imágenes' + (a.savedPages ? '; puedes ver cualquier página después con ver_paginas_documento' : '') + ']' : '') : '[Adjunto: ' + a.name + (a.kind === 'image' ? ' (imagen)' : '') + (a.note ? ' — ' + a.note : '') + ']').join('\n');
     return t;
+  }
+  async function blobB64(b) { return new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(String(r.result).split(',')[1] || ''); r.onerror = rej; r.readAsDataURL(b); }); }
+  /* guarda las páginas de un PDF del proyecto como imágenes (colección pimg) */
+  async function savePages(docId, blobs) {
+    let n = 0;
+    for (let i = 0; i < blobs.length; i++) { try { const data = await blobB64(blobs[i]); if (data.length > 230000) continue; Store.put('pimg', { id: docId + '-p' + (i + 1), docId, page: i + 1, mediaType: 'image/jpeg', data }); n = i + 1; } catch (e) { } }
+    if (n) Store.patch('pdocs', docId, { pages: n });
+    return n;
   }
   async function send(convId, text, atts) {
     const cv = Store.get('convs', convId); if (!cv || streaming.has(convId)) return;
@@ -179,6 +195,7 @@ const Chat = (() => {
       const d = Store.put('pdocs', { id: uid('pd'), projectId: cv.projectId, name: trunc(a.name, 80), size: body.length, ts: Date.now(), from: 'chat', method: a.method || 'texto' });
       Store.put('ptext', { id: d.id, text: body.slice(0, 200000) });
       a.savedDoc = d.id;
+      if (a.pageBlobs && a.pageBlobs.length) { a.savedPages = a.pageBlobs.length; savePages(d.id, a.pageBlobs); }
       Activity.log('proyecto', 'Documento añadido desde el chat: ' + d.name, { projectId: cv.projectId });
     }
     for (const a of (atts || [])) delete a.full;
@@ -201,6 +218,8 @@ const Chat = (() => {
     });
     if (turns[turns.length - 1].role !== 'user') turns.push({ role: 'user', content: text || '…' });
     const images = (atts || []).filter(a => a.kind === 'image' && a.blob).map(a => a.blob);
+    // las primeras páginas de los PDF adjuntos se muestran también como imágenes en este mensaje
+    for (const a of (atts || [])) if (a.pageBlobs && images.length < 4) images.push(...a.pageBlobs.slice(0, 4 - images.length));
     const msg = post(convId, { role: 'assistant', agentId: agent.id, text: '', status: 'streaming' });
     const ctl = new AbortController(); streaming.set(convId, { ctl, msg });
     const ctx = { mode: 'chat', agent, project, convId, events: [], signals: {} };
@@ -219,5 +238,5 @@ const Chat = (() => {
   }
   function stop(convId) { const s = streaming.get(convId); if (s) s.ctl.abort(); }
   function isStreaming(convId) { return streaming.has(convId); }
-  return { convsFor, newConv, ensureConv, messages, post, update, send, stop, isStreaming };
+  return { convsFor, newConv, ensureConv, messages, post, update, send, stop, isStreaming, savePages };
 })();
