@@ -211,12 +211,16 @@ export async function executeApproval(approvalId) {
     if (a.kind !== 'integracion' || !a.payload) return { error: 'Esta aprobación no corresponde a una integración.' };
     if (a.state !== 'aprobada') return { error: 'La acción no está aprobada.' };
     if (a.execState && a.execState !== 'pendiente') return { already: a };
+    // Reserve before releasing the lock: a concurrent request must see ejecutando.
+    await run(`UPDATE lc_docs SET data = data || $2::jsonb, v = v + 1,
+      seq = nextval('lc_seq'), updated_at = clock_timestamp()
+      WHERE collection = 'approvals' AND id = $1`,
+      [approvalId, JSON.stringify({ execState: 'ejecutando', execStartedAt: Date.now() })]);
     return { a };
   });
   if (claim.error) throw new IntError('invalid', claim.error);
   if (claim.already) return { state: claim.already.execState, result: claim.already.execResult || claim.already.execError };
   const a = claim.a;
-  await writeDoc('approvals', approvalId, { set: { execState: 'ejecutando', execStartedAt: Date.now() } });
   try {
     const { provider, action, params } = a.payload;
     if (provider !== 'shopify' || !WRITE[action]) throw new IntError('invalid', 'Acción no disponible.');
