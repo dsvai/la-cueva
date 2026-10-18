@@ -121,7 +121,8 @@ function create(canvas, world, callbacks) {
       previewModel = character(look); previewKey = id; portraitScene.add(previewModel.root);
     }
     portraitScene.background = new T.Color(look.bg || '#d8cbb5');
-    poseCharacter(previewModel, { pose: full ? 'walk' : 'stand', dir: 'S', t: time }, false);
+    const reduce = !!window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+    poseCharacter(previewModel, { pose: full && !reduce ? 'walk' : 'stand', dir: 'S', t: time }, reduce);
     const extent = full ? 1.08 : .43;
     Object.assign(portraitCam, { left: -extent, right: extent, top: extent, bottom: -extent });
     const cy = full ? .9 : 1.48;

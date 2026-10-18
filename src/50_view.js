@@ -99,7 +99,7 @@ const View = (() => {
     }
     if (e.mode === 'walk') { if (stepPath(e, dt)) { e.pose = 'stand'; e.mode = 'idle'; const f = e.then; e.then = null; if (f) f(); else e.mode = 'free'; } return; }
     if (e.mode === 'break') { e.wait -= dt; if (e.wait <= 0) { e.purpose = 'home'; sendHome(e); } return; }
-    if (e.mode === 'seat' && S.state === 'idle' && ambient && now - lastAmbient > 2.5) {
+    if (e.mode === 'seat' && S.state === 'idle' && ambient && !reduced && now - lastAmbient > 2.5) {
       // vida ambiental solo para agentes disponibles: café o sofá, nunca simulan trabajar
       if (Math.random() < dt * 0.012 && [...ents.values()].filter(x => x.mode === 'break' || (x.mode === 'walk' && x.purpose === 'break')).length < 3) { lastAmbient = now; e.purpose = 'break'; takeBreak(e); }
     }
