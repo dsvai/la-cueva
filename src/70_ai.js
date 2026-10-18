@@ -35,17 +35,20 @@ const AI = (() => {
     model_not_found: 'El modelo configurado no existe o tu clave no tiene acceso a él.',
     invalid_request: 'El proveedor de IA ha rechazado la petición.',
     unavailable: 'Sin conexión con el servidor de La Cueva. Vuelve a intentarlo.',
-    daily_limit: 'Se ha alcanzado el límite diario de llamadas que configuraste en Ajustes.',
+    daily_limit: 'Se ha alcanzado el límite diario de peticiones de IA que configuraste en Ajustes.',
+    plan_limit: 'Se ha alcanzado el límite de peticiones de este plan. Reanúdalo para ampliar su presupuesto.',
+    checkpoint_failed: 'No se pudo guardar el avance. Reanuda cuando vuelva la conexión.',
     timeout: 'Se superó el tiempo máximo configurado para este agente.'
   };
   function copy(code) { return COPY[code] || COPY.upstream_error; }
   async function call(o) {
     if (!sample) throw { code: 'no_ai', message: copy('no_ai') };
     const cfg = Config.get();
-    if (Activity.today().calls >= cfg.dailyCalls && !o.ignoreDaily) throw { code: 'daily_limit', message: copy('daily_limit') };
+    if (!LC_SERVER && Activity.today().calls >= cfg.dailyCalls && !o.ignoreDaily) throw { code: 'daily_limit', message: copy('daily_limit') };
     const agent = o.agent;
-    const opts = { signal: o.signal, resumeState: o.resumeState, onCheckpoint: o.onCheckpoint,
-      context: { agentId: agent.id, projectId: o.projectId || null, planId: o.planId || null } };
+    const opts = { signal: o.signal };
+    if (LC_SERVER) Object.assign(opts, { resumeState: o.resumeState, onCheckpoint: o.onCheckpoint,
+      context: { agentId: agent.id, projectId: o.projectId || null, planId: o.planId || null } });
     if (agent.tier) opts.modelTier = agent.tier;
     if (agent.model) opts.model = agent.model;
     if (o.onText) opts.onText = o.onText;
@@ -59,11 +62,11 @@ const AI = (() => {
     try {
       const r = await sample(o.input, opts);
       const real = r.usage && (r.usage.in || r.usage.out);
-      Activity.usage(agent.id, o.projectId, real ? r.usage.in : Math.ceil(inChars / 3.6), real ? r.usage.out : estTokens(r.text));
+      if (!LC_SERVER) Activity.usage(agent.id, o.projectId, real ? r.usage.in : Math.ceil(inChars / 3.6), real ? r.usage.out : estTokens(r.text));
       return { text: r.text, truncated: r.truncated, stop: r.stop, continuation: r.continuation, usage: r.usage, tier: r.modelTierApplied, model: r.modelApplied || '' };
     } catch (e) {
       const code = (e && e.code) || 'upstream_error';
-      if (code !== 'cancelled' && code !== 'not_granted') Activity.usage(agent.id, o.projectId, Math.ceil(inChars / 3.6), estTokens(e && e.text));
+      if (!LC_SERVER && code !== 'cancelled' && code !== 'not_granted') Activity.usage(agent.id, o.projectId, e && e.usage ? e.usage.in : Math.ceil(inChars / 3.6), e && e.usage ? e.usage.out : estTokens(e && e.text));
       throw { code, message: code === 'invalid_request' && e.message ? copy(code) + ' ' + e.message : copy(code), text: e && e.text, usage: e && e.usage, continuation: e && e.continuation };
     } finally { Activity.end(liveId); }
   }

@@ -128,7 +128,7 @@ const Orch = (() => {
       th.turns = compactTurns(th.turns);
       const ctx = { mode: 'task', agent, task, project: project(task.projectId), signals: th.signals || { collab: [], sub: [], approval: null, block: null }, events: [] };
       const input = [{ role: 'user', content: Prompt.preamble(agent, { project: ctx.project }) }].concat(th.turns);
-      if (plan) { plan.calls++; Store.put('plans', plan); }
+      if (plan && !LC_SERVER) { plan.calls++; Store.put('plans', plan); }
       const res = await AI.call({ agent, input, tools: Tools.build(agent, ctx), signal: ctl.signal, projectId: task.projectId, planId: task.planId, kind: 'task', label: task.title, taskId: id,
         resumeState: th.sample, onCheckpoint: async state => {
           th.sample = state; th.signals = JSON.parse(JSON.stringify(ctx.signals)); Store.put('tthread', th);
@@ -169,7 +169,7 @@ const Orch = (() => {
       else if (why === 'handoff') setTask(t, { state: 'en_cola', resume: t.resume || null }, 'Continuará en el siguiente turno del servidor');
       else if (why === 'cancel') setTask(t, { state: 'cancelada' }, 'Cancelada por ti');
       else if (why === 'timeout') setTask(t, { state: 'fallida', error: AI.copy('timeout') }, 'Fallida por tiempo');
-      else if (e.code === 'rate_limited' || e.code === 'daily_limit') setTask(t, { state: 'pausada', error: e.message }, 'Pausada: ' + e.message);
+      else if (['rate_limited', 'daily_limit', 'plan_limit', 'checkpoint_failed'].includes(e.code)) setTask(t, { state: 'pausada', error: e.message }, 'Pausada: ' + e.message);
       else if (e.code === 'upstream_error' && (t.attempt || 0) < 1) setTask(t, { state: 'en_cola', attempt: (t.attempt || 0) + 1, resume: t.resume || null }, 'Reintento automático tras un fallo temporal');
       else setTask(t, { state: 'fallida', error: e.message || String(e) }, 'Fallida: ' + (e.message || e));
       if (t.state === 'fallida') Activity.log('error', (agent.name) + ' no pudo completar «' + t.title + '»: ' + t.error, { agentId: agent.id, taskId: id, projectId: t.projectId });
@@ -252,7 +252,7 @@ const Orch = (() => {
     const live = Activity.start({ agentId: 'daniel', kind: 'task', label: 'Consolidando «' + plan.title + '»' });
     try {
       const input = [{ role: 'user', content: Prompt.preamble(daniel, { project: project(plan.projectId) }) }, { role: 'user', content: parts.join('\n\n') }];
-      plan.calls++;
+      if (!LC_SERVER) plan.calls++;
       const threadId = pid + '-summary';
       const previous = await Store.load('tthread', threadId);
       const res = await AI.call({ agent: daniel, input, projectId: plan.projectId, planId: pid, kind: 'task', label: 'Consolidación',
@@ -276,7 +276,7 @@ const Orch = (() => {
 
   /* ---------- acciones del administrador ---------- */
   function pausePlan(pid) { const plan = P(pid); if (!plan) return; plan.state = 'pausado'; Store.put('plans', plan); for (const t of planTasks(pid)) { const r = running.get(t.id); if (r) { r.why = 'pause'; r.ctl.abort(); } else if (t.state === 'en_cola') setTask(t, { state: 'pausada' }, 'Pausada por ti'); } Activity.log('plan', 'Pausaste el plan «' + plan.title + '»', { planId: pid }); Bus.emit('orch'); }
-  function resumePlan(pid) { const plan = P(pid); if (!plan || ['cancelado', 'completado'].includes(plan.state)) return; if (plan.calls >= plan.maxCalls) plan.maxCalls = plan.calls + Config.get().maxCallsPlan; plan.state = 'en_curso'; plan.error = null; Store.put('plans', plan); for (const t of planTasks(pid)) if (['pausada', 'interrumpida'].includes(t.state)) setTask(t, { state: 'en_cola', resume: t.resume || (Store.get('tthread', t.id) ? 'retry' : null) }, 'Reanudada'); for (const t of planTasks(pid)) if (t.state === 'pendiente' && depsDone(t)) setTask(t, { state: 'en_cola' }); Activity.log('plan', 'Reanudaste el plan «' + plan.title + '»', { planId: pid }); schedulePump(); checkPlan(pid); Bus.emit('orch'); }
+  function resumePlan(pid) { const plan = P(pid); if (!plan || ['cancelado', 'completado'].includes(plan.state)) return; if (plan.calls >= plan.maxCalls) plan.maxCalls = plan.calls + Config.get().maxCallsPlan; plan.state = 'en_curso'; plan.error = null; Store.put('plans', plan); for (const t of planTasks(pid)) if (['pausada', 'interrumpida'].includes(t.state)) setTask(t, { state: 'en_cola', continuations: 0, resume: t.resume || (Store.get('tthread', t.id) ? 'retry' : null) }, 'Reanudada'); for (const t of planTasks(pid)) if (t.state === 'pendiente' && depsDone(t)) setTask(t, { state: 'en_cola' }); Activity.log('plan', 'Reanudaste el plan «' + plan.title + '»', { planId: pid }); schedulePump(); checkPlan(pid); Bus.emit('orch'); }
   function cancelPlan(pid) { const plan = P(pid); if (!plan) return; for (const t of planTasks(pid)) { const r = running.get(t.id); if (r) { r.why = 'cancel'; r.ctl.abort(); } else if (!TERMINAL.has(t.state)) setTask(t, { state: 'cancelada' }, 'Cancelada por ti'); } plan.state = 'cancelado'; Store.put('plans', plan); Activity.log('plan', 'Cancelaste el plan «' + plan.title + '»', { planId: pid }); Bus.emit('orch'); }
   function finishReview(pid, ok) { const plan = P(pid); if (!plan) return; plan.state = ok ? 'completado' : 'en_revision'; Store.put('plans', plan); if (ok && plan.consolidatedId) Store.patch('deliverables', plan.consolidatedId, { status: 'aprobado' }); Activity.log('plan', (ok ? 'Aprobaste la entrega de «' : 'Pediste cambios en «') + plan.title + '»', { planId: pid }); Bus.emit('orch'); }
   function retryTask(id, note) {
@@ -284,7 +284,7 @@ const Orch = (() => {
     const pl0 = P(t.planId); if (pl0 && ['cancelado', 'completado'].includes(pl0.state)) { toast('Ese plan está ' + PS[pl0.state].toLowerCase() + '; pide a Daniel un plan nuevo.', true); return; }
     if (pl0 && pl0.calls >= pl0.maxCalls) pl0.maxCalls = pl0.calls + Config.get().maxCallsPlan;
     const hasThread = !!Store.get('tthread', id);
-    setTask(t, { state: 'en_cola', attempt: 0, error: null, resume: hasThread ? (note ? 'info' : 'retry') : null, resumeNote: note || null }, 'Reintento pedido por ti' + (note ? ': ' + trunc(note, 80) : ''));
+    setTask(t, { state: 'en_cola', attempt: 0, continuations: 0, error: null, resume: hasThread ? (note ? 'info' : 'retry') : null, resumeNote: note || null }, 'Reintento pedido por ti' + (note ? ': ' + trunc(note, 80) : ''));
     const plan = P(t.planId); if (plan && plan.state !== 'en_curso') { plan.state = 'en_curso'; Store.put('plans', plan); }
     for (const x of planTasks(t.planId)) if (x.state === 'bloqueada' && (x.deps || []).includes(id)) setTask(x, { state: 'pendiente', error: null });
     schedulePump(); Bus.emit('orch');
@@ -314,16 +314,17 @@ const Orch = (() => {
     if (a.kind === 'permiso' && ok && a.payload && Object.hasOwn(PERMS, a.payload.permiso)) { const ag = Roster.get(a.agentId); if (ag) { ag.perms[a.payload.permiso] = true; Roster.save(ag); } }
     const resume = () => {
       const ap = Store.get('approvals', id);
+      if (a.kind === 'integracion' && ok && !['hecha', 'fallida'].includes(ap && ap.execState)) return;
       if (a.taskId) { const t = T(a.taskId); if (t && t.state === 'esperando_aprobacion') { setTask(t, { state: 'en_cola', resume: 'approval', resumeNote: approvalNote(ap) }, ok ? 'Aprobación concedida' : 'Aprobación rechazada'); schedulePump(); } }
       if (a.convId && !a.taskId) Chat.post(a.convId, { role: 'system', text: (ok ? 'Has **aprobado**' : 'Has **rechazado**') + ': ' + a.title + (note ? ' — ' + note : '') + (ap && ap.kind === 'integracion' && ok ? (ap.execState === 'hecha' ? '\n\n**Ejecutado:** ' + ap.execResult : '\n\n**No se pudo ejecutar:** ' + (ap.execError || 'error desconocido')) : '') });
       Bus.emit('approvals'); Bus.emit('orch');
     };
     // integraciones: al aprobar, el servidor ejecuta exactamente lo propuesto (una sola vez) y luego sigue la tarea
     if (a.kind === 'integracion' && ok && window.LCIntegrations) {
-      Store.patch('approvals', id, { execState: 'pendiente' });
       (async () => {
         await Store.flush();
-        let r; try { r = await window.LCIntegrations.execute(id); } catch (e) { r = { state: 'fallida', result: (e && e.message) || 'error' }; }
+        let r; try { r = await window.LCIntegrations.execute(id); } catch (e) { toast('No se pudo confirmar el resultado. Consulta la aprobación antes de reintentar.', true); return; }
+        if (!['hecha', 'fallida'].includes(r.state)) { toast('El servidor ya está ejecutando esta aprobación.'); return; }
         Store.patch('approvals', id, r.state === 'hecha' ? { execState: 'hecha', execResult: r.result, execAt: Date.now() } : { execState: 'fallida', execError: r.result, execAt: Date.now() });
         Activity.log('integracion', (r.state === 'hecha' ? 'Ejecutado en Shopify: ' : 'Falló en Shopify: ') + trunc(String(r.result || ''), 120), { projectId: a.projectId, agentId: a.agentId });
         toast(r.state === 'hecha' ? 'Hecho en Shopify: ' + trunc(String(r.result || ''), 90) : 'No se pudo ejecutar en Shopify: ' + trunc(String(r.result || ''), 90), r.state !== 'hecha');
@@ -356,6 +357,11 @@ const Orch = (() => {
   }
   /* cambios hechos desde otro sitio (p. ej. pausar o cancelar desde el navegador mientras el servidor trabaja) */
   function reconcile() {
+    for (const t of Store.all('tasks').filter(t => t.state === 'esperando_aprobacion')) {
+      const ap = Store.get('approvals', t.approvalId);
+      if (ap && ap.kind === 'integracion' && ['hecha', 'fallida'].includes(ap.execState))
+        setTask(t, { state: 'en_cola', resume: 'approval', resumeNote: approvalNote(ap) }, 'Resultado de la integración recibido');
+    }
     for (const [id, r] of running) {
       const t = T(id), plan = t && P(t.planId);
       if (!t || t.state === 'cancelada' || (plan && plan.state === 'cancelado')) { if (!r.why) { r.why = 'cancel'; r.ctl.abort(); } }

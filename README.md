@@ -86,6 +86,16 @@ Claves de diseño:
 
 ## Pruebas
 
+### Fiabilidad de la versión con servidor
+
+- Cada aprobación de Shopify se reserva dentro de la transacción antes de llamar a la tienda. Las pestañas antiguas no pueden restablecer su estado de ejecución. Si una petición queda sin resultado confirmado, hay que revisar la aprobación; no se reenvía automáticamente una escritura externa.
+- Las tareas guardan el contexto y los resultados de herramientas entre pasos. Una entrega cortada continúa desde ese avance hasta dos veces; si sigue incompleta, queda pausada para revisión. No desbloquea dependientes ni se presenta como entrega completa. Al reintentar una tarea fallida, sus dependientes bloqueados por ese fallo pueden volver a avanzar.
+- El servidor reserva cada petición al proveedor, incluidos los pasos internos y los intentos de reserva de modelo. Los SDK no hacen reintentos ocultos. El presupuesto diario y el del plan se comprueban en una transacción compartida; restaurar contadores de la interfaz no restablece la cuota.
+- El consumo se guarda por petición, agente, proyecto y modelo, con las búsquedas que devuelve el proveedor. Los fallos sin datos de consumo cuentan como intento, pero no se inventan tokens. Los registros anteriores conservan sus cifras históricas. La estimación de coste usa las tarifas manuales de entrada y salida; no incluye búsquedas ni otros cargos.
+- No hay migraciones destructivas: se reutilizan `lc_docs` y `lc_meta`. Se mantienen los proyectos y las tareas existentes; publicar una corrección no reintenta trabajos anteriores.
+
+`npm test` incluye las regresiones de concurrencia, continuación y presupuestos en `test/reliability_test.mjs`, siempre con base de datos en memoria y servicios externos simulados.
+
 ```bash
 npm test                                   # backend: parches, concurrencia, contratos, bucle de herramientas, worker, pausa y traspaso
 cd test && node app_test.js                # artefacto con entorno simulado de Claude (Playwright)

@@ -10,6 +10,7 @@
    ============================================================ */
 import Anthropic from '@anthropic-ai/sdk';
 import OpenAI from 'openai';
+import { reserveCall, recordUsage, usageContext, UsageError } from './usage.js';
 
 const TIERS = ['quick', 'default', 'complex'];
 const DEF_MODELS = {
@@ -107,6 +108,7 @@ function toOpenAI(messages) {
 function mapError(e, signal) {
   if (signal && signal.aborted) return new LlmError('cancelled');
   if (e instanceof LlmError) return e;
+  if (e instanceof UsageError) return new LlmError(e.code, e.message);
   const st = e && (e.status || (e.response && e.response.status));
   const msg = String((e && e.message) || '');
   if (e && (e.name === 'AbortError' || /aborted/i.test(msg))) return new LlmError('cancelled');
@@ -123,7 +125,7 @@ function mapError(e, signal) {
 
 /* ---------- Anthropic ---------- */
 async function anthropicStep(req) {
-  const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY, maxRetries: 2, timeout: 280000 });
+  const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY, maxRetries: 0, timeout: 280000 });
   const params = { model: req.modelId, max_tokens: maxTokens(req.tier), messages: toAnthropic(req.messages) };
   if (req.tools && req.tools.length) params.tools = req.tools.map(t => ({ name: t.name, description: t.description || '', input_schema: t.inputSchema || { type: 'object', properties: {} } }));
   if (req.web) params.tools = (params.tools || []).concat([{ type: 'web_search_20250305', name: 'web_search', max_uses: 5 }, { type: 'web_fetch_20250910', name: 'web_fetch', max_uses: 5, max_content_tokens: 20000 }]);
@@ -145,7 +147,7 @@ async function anthropicStep(req) {
 
 /* ---------- OpenAI ---------- */
 async function openaiStep(req) {
-  const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY, maxRetries: 2, timeout: 280000 });
+  const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY, maxRetries: 0, timeout: 280000 });
   const params = { model: req.modelId, messages: toOpenAI(req.messages), max_completion_tokens: maxTokens(req.tier), stream: true, stream_options: { include_usage: true } };
   if (req.tools && req.tools.length) params.tools = req.tools.map(t => ({ type: 'function', function: { name: t.name, description: t.description || '', parameters: t.inputSchema || { type: 'object', properties: {} } } }));
   const stream = await client.chat.completions.create(params, { signal: req.signal });
@@ -197,18 +199,29 @@ export async function step(req) {
   const p = provider();
   if (!p) throw new LlmError('no_provider');
   const run = p === 'anthropic' ? anthropicStep : p === 'openai' ? openaiStep : mockStep;
+  let attempts = 0;
+  const attempt = async params => {
+    if (params.signal && params.signal.aborted) throw new LlmError('cancelled');
+    const reservation = await reserveCall(params.context);
+    attempts++;
+    let result;
+    try { result = await run(params); }
+    catch (e) { await recordUsage(reservation, e.usage || {}, p, params.modelId, true); throw e; }
+    await recordUsage(reservation, result.usage || {}, p, result.model || params.modelId, false);
+    return { ...result, usage: { ...result.usage, calls: attempts } };
+  };
   const explicit = typeof req.model === 'string' && /^[\w.:\-/]{2,80}$/.test(req.model) ? req.model : '';
   const tierModel = modelFor(p, req.tier);
   try {
-    return await run(Object.assign({}, req, { modelId: explicit || tierModel }));
+    return await attempt(Object.assign({}, req, { modelId: explicit || tierModel }));
   } catch (e) {
     const err = mapError(e, req.signal);
     // si la búsqueda web está desactivada en la organización de Anthropic, se sigue sin ella
     if (req.web && err.code === 'invalid_request' && /web.?(search|fetch)/i.test(String(e && e.message))) {
-      try { const r = await run(Object.assign({}, req, { web: false, modelId: explicit || tierModel })); r.text = (r.text || '') + '\n\n_(La búsqueda web está desactivada en tu cuenta de Anthropic: actívala en Settings → Capabilities de la consola.)_'; return r; } catch (e2) { throw mapError(e2, req.signal); }
+      try { const r = await attempt(Object.assign({}, req, { web: false, modelId: explicit || tierModel })); r.text = (r.text || '') + '\n\n_(La búsqueda web está desactivada en tu cuenta de Anthropic: actívala en Settings → Capabilities de la consola.)_'; return r; } catch (e2) { throw mapError(e2, req.signal); }
     }
     if (explicit && (err.code === 'model_not_found' || err.code === 'invalid_request') && explicit !== tierModel) {
-      try { return await run(Object.assign({}, req, { modelId: tierModel })); } catch (e2) { throw mapError(e2, req.signal); }
+      try { return await attempt(Object.assign({}, req, { modelId: tierModel })); } catch (e2) { throw mapError(e2, req.signal); }
     }
     throw err;
   }
@@ -218,5 +231,5 @@ export async function step(req) {
 export function validateRequest(b) {
   if (!b || !Array.isArray(b.messages) || !b.messages.length || b.messages.length > 400) throw new LlmError('invalid_request', 'Mensajes no válidos');
   const tools = Array.isArray(b.tools) ? b.tools.slice(0, 20).filter(t => t && typeof t.name === 'string' && /^[\w-]{1,64}$/.test(t.name)) : [];
-  return { messages: b.messages, tools, tier: TIERS.includes(b.tier) ? b.tier : 'default', model: typeof b.model === 'string' ? b.model : '', web: !!b.web };
+  return { messages: b.messages, tools, tier: TIERS.includes(b.tier) ? b.tier : 'default', model: typeof b.model === 'string' ? b.model : '', web: !!b.web, context: usageContext(b.context) };
 }

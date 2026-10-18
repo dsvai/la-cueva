@@ -68,12 +68,21 @@ export async function query(c, where, limit) {
   return r.rows.map(x => ({ id: x.id, data: x.data, v: x.v }));
 }
 
-export async function writeDoc(c, id, ops) {
+export async function writeDoc(c, id, ops, options) {
   checkColId(c, id);
   return tx(async run => {
     await run('SELECT pg_advisory_xact_lock(hashtext($1))', [c + '/' + id]);
     const r = await run('SELECT data, deleted FROM lc_docs WHERE collection = $1 AND id = $2', [c, id]);
     const cur = r.rows[0] && !r.rows[0].deleted ? r.rows[0].data : null;
+    if (options && options.external && c === 'approvals') {
+      ops = JSON.parse(JSON.stringify(ops || {}));
+      const owned = ['execState', 'execStartedAt', 'execAt', 'execResult', 'execError'];
+      if (cur && cur.state !== 'pendiente') owned.push('state', 'kind', 'payload', 'projectId');
+      for (const field of owned) {
+        for (const kind of ['set', 'inc', 'append']) if (ops[kind]) delete ops[kind][field];
+        if (ops.unset) ops.unset = ops.unset.filter(k => k !== field);
+      }
+    }
     const next = applyOps(c, cur, ops);
     next.id = id;
     const json = JSON.stringify(next);
@@ -140,7 +149,7 @@ export async function runOps(ops, opts) {
     try {
       if (o.op === 'get') out.push(await getDoc(o.c, o.id));
       else if (o.op === 'query') out.push({ docs: await query(o.c, o.where, o.limit) });
-      else if (o.op === 'write') out.push(await writeDoc(o.c, o.id, o.ops));
+      else if (o.op === 'write') out.push(await writeDoc(o.c, o.id, o.ops, { external: true }));
       else if (o.op === 'delete') out.push(await deleteDoc(o.c, o.id));
       else if (o.op === 'changes') out.push(await changes(o.since, o.full));
       else if (o.op === 'acquire') out.push(allowLease ? await acquire(o.name, o.holder, o.ttlMs) : { acquired: false, holder: null });

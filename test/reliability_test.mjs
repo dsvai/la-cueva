@@ -32,6 +32,10 @@ try {
     assert.equal((await executeApproval('regression-approval')).state, 'hecha');
     assert.equal(writes, 1);
     assert.equal((await getDoc('approvals', 'regression-approval')).data.execState, 'hecha');
+    const { runOps } = await import('../server/docs.js');
+    await runOps([{ op: 'write', c: 'approvals', id: 'regression-approval', ops: { set: { execState: 'pendiente', state: 'pendiente', payload: {} } } }]);
+    assert.equal((await executeApproval('regression-approval')).state, 'hecha');
+    assert.equal(writes, 1, 'a stale browser cannot reset an executed approval');
     globalThis.fetch = originalFetch;
   });
   await test('tool-only steps retain their checkpoint and resume without replay', async () => {
@@ -91,6 +95,32 @@ try {
       assert.equal(rt.Store.get('tasks', first).state, 'completada');
       assert.equal(rt.Store.get('tasks', next).state, 'completada');
     } finally { rt.Orch.setHold(true); rt.Orch.drain('pause'); await rt.Store.flush(); await rt.Leader.stop(); db.stop(); }
+  });
+  await test('server atomically admits only one concurrent request at the daily limit', async () => {
+    const { step } = await import('../server/llm.js');
+    const { usageDay } = await import('../server/usage.js');
+    const day = usageDay('Europe/Madrid');
+    const before = (await getDoc('usage', day)).data || { calls: 0 };
+    await writeDoc('config', 'main', { set: { dailyCalls: before.calls + 1 } });
+    const req = { messages: [{ role: 'user', content: 'Local mock only' }], context: { agentId: 'alex', projectId: 'regression-project' } };
+    const results = await Promise.allSettled([step(req), step(req)]);
+    assert.equal(results.filter(x => x.status === 'fulfilled').length, 1);
+    assert.equal(results.find(x => x.status === 'rejected').reason.code, 'daily_limit');
+    const after = (await getDoc('usage', day)).data;
+    assert.equal(after.calls, before.calls + 1); assert.ok(after.outTok > 0);
+    assert.ok(after.byModel['mock:mock']);
+    await writeDoc('usage', day, { set: { calls: 0 } });
+    await assert.rejects(step(req), e => e.code === 'daily_limit');
+    await writeDoc('usage', day, { set: { calls: after.calls } });
+    await writeDoc('config', 'main', { set: { dailyCalls: 150 } });
+  });
+  await test('server enforces a plan budget before every internal provider step', async () => {
+    const { step } = await import('../server/llm.js');
+    await writeDoc('plans', 'budget-plan', { set: { calls: 0, maxCalls: 1, projectId: 'regression-project' } });
+    const req = { messages: [{ role: 'user', content: 'Local mock only' }], context: { agentId: 'alex', projectId: 'regression-project', planId: 'budget-plan' } };
+    await step(req);
+    await assert.rejects(step(req), e => e.code === 'plan_limit');
+    assert.equal((await getDoc('plans', 'budget-plan')).data.calls, 1);
   });
   console.log('\n' + passed + ' reliability regressions passed');
   process.exitCode = 0;
