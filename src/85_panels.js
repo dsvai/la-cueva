@@ -375,7 +375,7 @@ const Panels = (() => {
       if (t === 'feat') {
         const ai = AI.status === 'ok', db = Store.mode === 'db';
         const rows = [
-          ['Oficina pixel art, 12 espacios y 22 personajes únicos', 'op', 'Mapa continuo con pasillos; WASD o flechas, ratón, zoom, directorio.'],
+          ['Oficina isométrica, 12 espacios y 22 personajes únicos', 'op', 'Estudio 3D con materiales y luz suave, personajes editables y animados. WASD o flechas, ratón, zoom y directorio; modo 2D compatible si no hay WebGL.'],
           ['Estados visibles de cada agente', 'op', 'Disponible, trabajando, colaborando, esperando aprobación o detenido, según tareas y llamadas reales. Los descansos son ambientales y nunca simulan trabajo.'],
           ['Chat real con los 22 agentes', ai ? 'op' : 'cfg', ai ? 'Responden con Claude usando tu sesión. Markdown, código, adjuntos y herramientas.' : 'Abre La Cueva dentro de Claude con sesión iniciada y acepta el permiso para usar Claude.'],
           ['Historial persistente y proyectos', db ? 'op' : 'cfg', db ? 'Guardado en la base de datos de La Cueva.' : (Store.mode === 'local' ? 'Ahora mismo solo en este navegador.' : 'Sin almacenamiento en esta vista.')],
@@ -422,7 +422,7 @@ const Panels = (() => {
     b.innerHTML = '';
     const w = hs && hs.worker;
     const rows = [
-      ['Oficina pixel art, 12 espacios y 22 personajes únicos', 'op', 'Mapa continuo con pasillos; WASD o flechas, ratón, zoom, directorio.'],
+      ['Oficina isométrica, 12 espacios y 22 personajes únicos', 'op', 'Estudio 3D con materiales y luz suave, personajes editables y animados. WASD o flechas, ratón, zoom y directorio; modo 2D compatible si no hay WebGL.'],
       ['Estados visibles de cada agente', 'op', 'Según tareas reales del servidor y de tus chats. Los descansos son ambientales y nunca simulan trabajo.'],
       ['Acceso privado con contraseña', hs && hs.password ? 'op' : 'cfg', 'Sesión con cookie protegida; la contraseña vive solo en Vercel (ADMIN_PASSWORD).'],
       ['Base de datos en el servidor', hs && hs.db ? 'op' : 'cfg', hs && hs.db ? 'Postgres: proyectos, chats, tareas, memoria y entregables, compartidos entre tus dispositivos.' : ((hs && hs.dbError) || 'Falta conectar la base de datos.')],
@@ -529,9 +529,15 @@ const Panels = (() => {
         bind(w, draft); b.append(w, bar);
       }
       if (t === 'avatar') {
-        const w = h('<div class="grid g2"><div class="card" style="display:flex;align-items:center;justify-content:center;background:var(--paper-2)"><canvas width="192" height="192" style="image-rendering:pixelated;width:192px;height:192px"></canvas></div><div class="form"></div></div>');
+        const w = h('<div class="grid g2"><div class="card" style="display:flex;align-items:center;justify-content:center;background:var(--paper-2)"><canvas width="192" height="192" style="width:192px;height:192px"></canvas></div><div class="form"></div></div>');
         const cv = w.querySelector('canvas'), x = cv.getContext('2d'); x.imageSmoothingEnabled = false;
-        let frame = 0; const draw = () => { const sh = buildSheet(draft.avatar); x.clearRect(0, 0, 192, 192); const keys = ['stand-S', 'walk-S', 'walk-E', 'stand-N']; const k = keys[Math.floor(frame / 8) % 4]; x.drawImage(sh.canvas, (frame % 4) * FR * (k.startsWith('walk') ? 1 : 0), sh.row(k) * FR, FR, FR, 0, 0, 192, 192); };
+        let frame = 0; const draw = () => {
+          const rendered = window.LC_STUDIO && window.LC_STUDIO.portrait(draft.avatar, 192, true, frame * .16);
+          x.clearRect(0, 0, 192, 192);
+          if (rendered) { x.imageSmoothingEnabled = true; x.drawImage(rendered, 0, 0, 192, 192); return; }
+          const sh = buildSheet(draft.avatar), keys = ['stand-S', 'walk-S', 'walk-E', 'stand-N'], k = keys[Math.floor(frame / 8) % 4];
+          x.imageSmoothingEnabled = false; x.drawImage(sh.canvas, (frame % 4) * FR * (k.startsWith('walk') ? 1 : 0), sh.row(k) * FR, FR, FR, 0, 0, 192, 192);
+        };
         const iv = setInterval(() => { if (!document.body.contains(cv)) { clearInterval(iv); return; } frame++; draw(); }, 160); draw();
         const form = w.querySelector('.form');
         const sel = (label, key, opts) => { const l = h('<label class="f"><span></span><select></select></label>'); l.querySelector('span').textContent = label; const s = l.querySelector('select'); for (const [v, t2] of opts) { const o = h('<option></option>'); o.value = v; o.textContent = t2; s.append(o); } s.value = draft.avatar[key] || ''; s.onchange = () => { draft.avatar[key] = s.value || undefined; draw(); }; form.append(l); };

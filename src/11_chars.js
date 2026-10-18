@@ -261,6 +261,8 @@ function buildSheet(P) {
 }
 /* retrato cuadrado de la cabeza para listas y chats */
 function avatarCanvas(P, px) {
+  const rendered = typeof window !== 'undefined' && window.LC_STUDIO && window.LC_STUDIO.portrait(P, px);
+  if (rendered) { const [c, x] = cvs(px || 40, px || 40); x.imageSmoothingEnabled = true; x.drawImage(rendered, 0, 0, c.width, c.height); return c; }
   const sh = buildSheet(P); const s = px || 40;
   const [c, x] = cvs(s, s); x.imageSmoothingEnabled = false;
   x.fillStyle = P.bg || '#4a5d4f'; x.fillRect(0, 0, s, s);

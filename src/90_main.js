@@ -3,7 +3,7 @@
    ============================================================ */
 const ARCH_MD = `## Cómo está construida esta versión
 
-**Frontend (esta app):** oficina pixel art en canvas, directorio, chat y paneles. Todo en un único archivo publicado como app dentro de Claude.
+**Frontend (esta app):** oficina 3D isométrica con Three.js, directorio, chat y paneles. El artefacto incluye el motor; si el navegador no tiene WebGL, mantiene la oficina 2D compatible.
 
 **Datos:** base de datos propia de La Cueva (documentos por colección: proyectos, conversaciones, tareas, entregables, reglas, actividad y consumo). Solo tú puedes leer y escribir. Si se abre fuera de Claude, cae a este navegador y lo indica en la cabecera.
 
@@ -31,7 +31,7 @@ Repositorio en GitHub y despliegue en Vercel con funciones de servidor, base de 
 
 const ARCH_SERVER_MD = `## Cómo está construida esta versión (con backend)
 
-**Frontend:** la misma oficina pixel art, directorio, chat y paneles, servida por Vercel. Entras con tu contraseña de administrador; la sesión es una cookie protegida que el navegador no puede leer.
+**Frontend:** oficina 3D isométrica, directorio, chat y paneles, servidos por Vercel. El motor y los materiales están incluidos en la aplicación; no descarga modelos de terceros. Entras con tu contraseña de administrador; la sesión es una cookie protegida que el navegador no puede leer. Sin WebGL se conserva la oficina 2D compatible.
 
 **Servidor (Vercel Functions):** \`/api/session\` (acceso), \`/api/db\` (datos), \`/api/llm\` (un paso del modelo de IA), \`/api/worker\` (orquestador en segundo plano) y \`/api/health\` (estado). Las claves (IA, base de datos, contraseña) viven solo en variables de entorno de Vercel.
 
@@ -78,9 +78,9 @@ const NEXT_MD = `## Informe de esta entrega
 **6. Siguiente paso recomendado:** usarla con un proyecto real durante unos días y, después, abrir el backend en Claude Code sobre tu GitHub y Vercel, empezando por la cola de trabajos con cron y la conexión a Gmail y Drive.`;
 
 (async function boot() {
-  UI.header();
   const logo = new Image(); logo.onload = () => { World.setLogo(logo); View.rebuildStatic(); }; logo.src = LOGO_SRC;
   View.init($('#world'), { statusOf: id => Orch.agentStatus(id), onSelect: UI.onSelect, onOpenChat: id => ChatUI.open(id) });
+  UI.header();
   View.setAgents(Roster.enabled());
   Bus.on('view:hover', UI.onHover);
   let pf = 0; Bus.on('view:frame', () => { if (++pf % 3 === 0) UI.placeSel(); });
