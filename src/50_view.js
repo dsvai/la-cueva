@@ -10,7 +10,7 @@ const View = (() => {
   let showNames = true, ambient = true, reduced = false;
   let statusOf = () => ({ state: 'idle' });
   let onSelect = () => { }, onOpenChat = () => { };
-  const Z_STEPS = [0.5, 1, 1.5, 2, 3, 4];
+  const Z_STEPS = [0.5, 0.75, 1, 1.5, 2, 3, 4];
 
   /* ---------- entidades ---------- */
   function mkEnt(id, P, x, y, dir) {
@@ -295,7 +295,9 @@ const View = (() => {
     if (window.ResizeObserver) new ResizeObserver(resize).observe(cv);
     phase = World.phaseNow(); staticLayer = World.buildStatic(phase);
     player = mkEnt('__me', PLAYER_LOOK, World.spawn.x, World.spawn.y, 'N'); player.mode = 'player';
-    cam.x = player.x; cam.y = player.y - 60; cam.z = vw < 700 ? 1 : 2;
+    // escritorio: se abre con la oficina entera a la vista, centrada en el núcleo; móvil: siguiendo a tu personaje
+    if (vw >= 700) { cam.follow = false; const mh = World.H * TILE; cam.z = mh <= vh ? 1 : 0.75; cam.x = World.W * TILE / 2; cam.y = Math.min(mh / 2, vh / cam.z / 2 + 4); }
+    else { cam.x = player.x; cam.y = player.y - 60; cam.z = 1; }
     // entrada: teclado
     window.addEventListener('keydown', ev => {
       const tg = ev.target; if (tg && (tg.tagName === 'INPUT' || tg.tagName === 'TEXTAREA' || tg.tagName === 'SELECT' || tg.isContentEditable)) return;
@@ -325,7 +327,7 @@ const View = (() => {
   function focusAgent(id) { const e = ents.get(id); if (!e) return; cam.follow = false; cam.tx = e.x; cam.ty = e.y - 20; if (cam.z < 2) cam.z = 2; select(id); }
   function focusRoom(rid) { const R = World.rooms[rid]; if (!R) return; cam.follow = false; cam.tx = R.cx; cam.ty = R.cy; if (cam.z < 1.5) cam.z = 1.5; }
   function centerMe() { cam.follow = true; cam.tx = null; }
-  function overview() { cam.follow = false; cam.tx = World.W * TILE / 2; cam.ty = World.H * TILE / 2; const fit = Math.min(vw / (World.W * TILE), vh / (World.H * TILE)); cam.z = fit >= 1 ? 1 : 0.5; Bus.emit('view:zoom', cam.z); }
+  function overview() { cam.follow = false; cam.tx = World.W * TILE / 2; cam.ty = World.H * TILE / 2; const fit = Math.min(vw / (World.W * TILE), vh / (World.H * TILE)); cam.z = [...Z_STEPS].reverse().find(z => z <= fit) || Z_STEPS[0]; Bus.emit('view:zoom', cam.z); }
   function screenPosOf(id) { const e = ents.get(id); if (!e) return null; return { x: (e.x - cam.x) * cam.z + vw / 2, y: (e.y - 46 - cam.y) * cam.z + vh / 2 }; }
   function setPad(x, y) { pad.x = x; pad.y = y; }
   function rebuildStatic() { staticLayer = World.buildStatic(phase); }
