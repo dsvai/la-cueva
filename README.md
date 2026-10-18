@@ -18,7 +18,7 @@ npm test             # pruebas del backend (PGlite + IA simulada)
 
 ## Despliegue en Vercel
 
-El proyecto está vinculado al repositorio: cada push a `main` despliega producción.
+El proyecto está vinculado al repositorio: cada push a `main` despliega producción. En el plan Hobby, Vercel solo despliega automáticamente commits de otros autores si el repositorio es público; con repositorio privado hay que desplegar a mano desde Vercel (Deployments → Create Deployment → `main`).
 
 Variables de entorno (Project → Settings → Environment Variables). **Nunca** van en el código ni en el navegador:
 
