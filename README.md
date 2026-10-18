@@ -2,7 +2,7 @@
 
 Agencia digital de agentes de IA de **La Cueva by Daniel**: estudio 3D isométrico con 22 agentes editables y animados, chat real, proyectos, orquestador de tareas, memoria supervisada y aprobaciones.
 
-La oficina usa Three.js empaquetado con esbuild, materiales procedurales, cámara ortográfica y mobiliario agrupado para reducir llamadas de dibujo. Conserva el plano lógico y las rutas del visor anterior, con selección por rayos, zoom, arrastre y controles de pantalla tanto con teclado como con cruceta. Los retratos de listas y chats se renderizan a partir del mismo personaje. La animación de trabajo depende del estado real de cada agente. Sin WebGL se activa la vista 2D compatible; los modelos no requieren descargas externas. Ver [diseño y verificación del estudio](docs/isometric-studio.md).
+La oficina usa Three.js empaquetado con esbuild, materiales procedurales, cámara ortográfica y mobiliario agrupado para reducir llamadas de dibujo. Conserva el plano lógico y las rutas del visor anterior, con selección por rayos, zoom, arrastre y controles de pantalla tanto con teclado como con joystick. Los retratos de listas y chats se renderizan a partir del mismo personaje. La animación de trabajo depende del estado real de cada agente. Sin WebGL se activa la vista 2D compatible; los modelos no requieren descargas externas. Ver [diseño y verificación del estudio](docs/isometric-studio.md).
 
 Del mismo código salen dos versiones:
 

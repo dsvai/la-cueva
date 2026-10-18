@@ -9,7 +9,7 @@ import { buildSync } from 'esbuild';
 
 const root = path.dirname(fileURLToPath(import.meta.url));
 const S = f => fs.readFileSync(path.join(root, 'src', f), 'utf8');
-const JS = ['10_core.js', '11_chars.js', '12_tiles.js', '13_props.js', '20_data.js', '30_world.js', '50_view.js', '60_store.js', '65_agents.js', '70_ai.js', '72_chat.js', '75_orch.js', '80_ui.js', '85_panels.js', '90_main.js'];
+const JS = ['10_core.js', '11_chars.js', '12_tiles.js', '13_props.js', '20_data.js', '30_world.js', '45_controls.js', '50_view.js', '60_store.js', '65_agents.js', '70_ai.js', '72_chat.js', '75_orch.js', '80_ui.js', '85_panels.js', '90_main.js'];
 const logoBuf = fs.readFileSync(path.join(root, 'assets/logo.png'));
 const studioJs = buildSync({ entryPoints: [path.join(root, 'src/studio/index.js')], bundle: true, minify: true, write: false, format: 'iife', platform: 'browser', target: 'es2020', legalComments: 'inline' }).outputFiles[0].text;
 const appJs = studioJs + '\n' + JS.map(S).join('\n');

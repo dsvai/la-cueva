@@ -39,7 +39,7 @@
 </header>
 
 <main id="stage">
-  <canvas id="world" aria-label="Oficina de La Cueva. Usa WASD o las flechas para moverte; haz clic en un trabajador para hablar con él." tabindex="0"></canvas>
+  <canvas id="world" aria-label="Oficina de La Cueva. Usa el joystick en móvil o WASD y las flechas con teclado; toca a un trabajador para hablar con él." tabindex="0"></canvas>
   <div class="hud">
     <button class="hb" id="z-in" aria-label="Acercar"><svg><use href="#i-plus"/></svg></button>
     <button class="hb" id="z-out" aria-label="Alejar"><svg><use href="#i-minus"/></svg></button>
@@ -48,9 +48,9 @@
   </div>
   <div id="tip" hidden></div>
   <div id="sel" hidden></div>
-  <div id="pad" aria-hidden="true">
-    <button style="left:40px;top:0" data-d="0,-1">▲</button><button style="left:0;top:40px" data-d="-1,0">◀</button>
-    <button style="left:80px;top:40px" data-d="1,0">▶</button><button style="left:40px;top:80px" data-d="0,1">▼</button>
+  <div id="pad">
+    <button id="joystick" type="button" aria-label="Joystick de movimiento. Arrastra en la dirección deseada; con teclado usa WASD o las flechas."><span id="joystick-knob" aria-hidden="true"></span></button>
+    <span class="joystick-hint" aria-hidden="true">Mover</span>
   </div>
 </main>
 

@@ -7,7 +7,7 @@ Implementar la opción 2 elegida por Daniel: oficina 3D isométrica, madera, ver
 ## Implementación
 
 1. Escena Three.js empaquetada localmente con esbuild; cámara ortográfica, mobiliario y materiales procedurales. Sin modelos remotos ni servicios de pago.
-2. Conectar la escena al movimiento y a los estados reales del visor. Selección por raycasting, arrastre, zoom y cruceta/teclado en coordenadas de pantalla. Mantener el visor 2D como alternativa si WebGL no está disponible.
+2. Conectar la escena al movimiento y a los estados reales del visor. Selección por raycasting, arrastre, zoom y joystick/teclado en coordenadas de pantalla. Mantener el visor 2D como alternativa si WebGL no está disponible.
 3. Personajes articulados con apariencia editable y retratos coherentes en directorio/chat. Respetar movimiento reducido y limitar resolución en móvil.
 4. Verificar en navegador local, escritorio y móvil; ejecutar las regresiones, revisar el diff, subir a GitHub y verificar el despliegue automático.
 
@@ -24,6 +24,13 @@ Implementar la opción 2 elegida por Daniel: oficina 3D isométrica, madera, ver
 - Navegador: render sin errores, selección/charla, desplazamiento, zoom, vista completa y foco por directorio. Comprobar 390 px y escritorio; reducción de movimiento y fallback sin WebGL.
 - Verificar rutas libres y proyección/inversa de cámara con pruebas de geometría.
 - Conservar autenticación, datos y configuración de Vercel. No iniciar tareas pagadas para probar la escena.
+
+## Controles y revisión móvil
+
+- Joystick de ocho direcciones con velocidad proporcional, zona muerta y captura del puntero. Al soltar, cancelar, cambiar de orientación o abrir un menú, vuelve a cero.
+- La oficina, los cajones y los controles siguen `visualViewport`, incluidos los cambios de altura del teclado. Los campos móviles usan 16 px para evitar el zoom de enfoque.
+- Ocho accesos superiores visibles; paneles con cabecera y pestañas que no se encogen, contenido desplazable y rejillas que caben a 320 px. El chat ampliado oculta sus columnas laterales en móvil.
+- Comprobar 320 px, 390 px, altura reducida para teclado y 844 × 390 en horizontal. Al cerrar menús y chat deben seguir visibles el joystick, Daniel y los controles de cámara.
 
 ## Referencias
 

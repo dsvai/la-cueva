@@ -86,12 +86,12 @@ const UI = (() => {
     const fav = $('#fab-av'), d = Roster.get('daniel'); fav.getContext('2d').drawImage(avatarCanvas(Object.assign({ bg: '#4f3b2d' }, d.avatar), 36), 0, 0);
     $('#new-agent').onclick = () => Panels.agent(null);
     $('#dir-q').addEventListener('input', renderDir);
-    // cruceta táctil
-    $$('#pad button').forEach(b => { const [x, y] = b.dataset.d.split(',').map(Number); const on = e => { e.preventDefault(); View.setPad(x, y); }; const off = () => View.setPad(0, 0); b.addEventListener('pointerdown', on); b.addEventListener('pointerup', off); b.addEventListener('pointerleave', off); b.addEventListener('pointercancel', off); });
+    TouchControls.bind($('#joystick'), $('#joystick-knob'), View.setPad);
     document.addEventListener('keydown', e => { if (e.key === 'Escape') { if ($('#modal').classList.contains('open')) Panels.close(); else if ($('#sel').hidden === false) View.select(null); else if (openDrawer) close(openDrawer); } });
   }
   function toggle(id) { if (openDrawer === id) close(id); else open(id); }
   function open(id) {
+    Bus.emit('ui:overlay');
     if (openDrawer && openDrawer !== id && window.innerWidth < 900) close(openDrawer);
     $('#' + id).classList.add('open'); if (id === 'dir') { $('.nb[data-open=dir]').setAttribute('aria-pressed', 'true'); renderDir(); }
     openDrawer = id; layoutFab();
@@ -362,6 +362,7 @@ const ChatUI = (() => {
     shell(); bar(); composer(); msgs(); if (wide) { sideList(); sideCtx(); }
   }
   function open(id, opts) {
+    if ($('#modal').classList.contains('open')) Panels.close();
     agentId = id; convId = (opts && opts.convId) || (Chat.convsFor(id)[0] || {}).id || null; atts = [];
     render(); UI.open('chat');
     setTimeout(() => { const t = $('#c-in', root()); if (t && window.innerWidth > 760) t.focus(); }, 60);

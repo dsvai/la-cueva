@@ -119,7 +119,7 @@ const View = (() => {
     cam.follow = true; cam.tx = null;
     const l = Math.hypot(mx, my); mx /= l; my /= l;
     if (studio) { const d = studio.direction(mx, my); mx = d.x; my = d.y; }
-    const sp = 120 * dt;
+    const sp = 120 * dt * ((pad.x || pad.y) ? Math.min(1, l) : 1);
     if (Math.abs(mx) > Math.abs(my)) player.dir = mx > 0 ? 'E' : 'W'; else player.dir = my > 0 ? 'S' : 'N';
     player.pose = 'walk';
     const free = (x, y) => { const pts = [[x - 7, y - 5], [x + 7, y - 5], [x - 7, y], [x + 7, y]]; return pts.every(([px, py]) => World.walk(Math.floor(px / TILE), Math.floor(py / TILE))); };
@@ -327,6 +327,7 @@ const View = (() => {
     });
     window.addEventListener('keyup', ev => keys.delete(ev.key.toLowerCase()));
     window.addEventListener('blur', () => keys.clear());
+    Bus.on('ui:overlay', () => { keys.clear(); pad.x = 0; pad.y = 0; clearHover(); });
     // entrada: puntero (arrastrar = mover cámara, clic = seleccionar, rueda/pellizco = zoom)
     const ptrs = new Map(); let drag = null, pinch = null;
     cv.addEventListener('pointerdown', ev => { cv.setPointerCapture(ev.pointerId); ptrs.set(ev.pointerId, { x: ev.offsetX, y: ev.offsetY }); if (ptrs.size === 1) drag = { x: ev.offsetX, y: ev.offsetY, cx: cam.x, cy: cam.y, moved: false }; else if (ptrs.size === 2) { const [a, b] = [...ptrs.values()]; pinch = { d: Math.hypot(a.x - b.x, a.y - b.y) }; drag = null; } });

@@ -67,7 +67,7 @@ function viewHarness(use3D) {
     window: { devicePixelRatio: 1, LC_STUDIO: { create: () => use3D ? engine : null },
       matchMedia: () => ({ matches: true }), addEventListener: (name, fn) => { listeners[name] = fn; } },
     TILE: 32, PLAYER_LOOK: {}, buildSheet: () => ({}),
-    Bus: { emit() {} }, lerp: (a, b, t) => a + (b - a) * t, clamp: (n, a, b) => Math.max(a, Math.min(b, n)),
+    Bus: { emit() {}, on() {} }, lerp: (a, b, t) => a + (b - a) * t, clamp: (n, a, b) => Math.max(a, Math.min(b, n)),
     World: { W: 33, H: 37, rooms: { DIR: { cx: 500, cy: 500 } }, spawn: { x: 500, y: 500 },
       walk: () => true, buildStatic: () => null, phaseNow: () => 'day' }
   });

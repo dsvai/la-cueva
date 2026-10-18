@@ -78,6 +78,7 @@ const NEXT_MD = `## Informe de esta entrega
 **6. Siguiente paso recomendado:** usarla con un proyecto real durante unos días y, después, abrir el backend en Claude Code sobre tu GitHub y Vercel, empezando por la cola de trabajos con cron y la conexión a Gmail y Drive.`;
 
 (async function boot() {
+  TouchControls.viewport();
   const logo = new Image(); logo.onload = () => { World.setLogo(logo); View.rebuildStatic(); }; logo.src = LOGO_SRC;
   View.init($('#world'), { statusOf: id => Orch.agentStatus(id), onSelect: UI.onSelect, onOpenChat: id => ChatUI.open(id) });
   UI.header();
@@ -99,6 +100,6 @@ const NEXT_MD = `## Informe de esta entrega
   Sched.tick(); setInterval(Sched.tick, 30000);
   if (document.fonts && document.fonts.ready) document.fonts.ready.then(() => View.rebuildStatic());
   if (n) toast(n + ' tarea(s) quedaron interrumpidas al cerrar. Reanúdalas desde el panel de Dirección.');
-  else toast(Store.all('convs').length ? 'Bienvenido de nuevo a La Cueva.' : (matchMedia('(pointer:coarse)').matches ? 'Muévete con la cruceta. Toca a cualquier trabajador para hablar con él.' : 'Muévete con WASD o las flechas. Haz clic en cualquier trabajador para hablar con él.'));
+  else toast(Store.all('convs').length ? 'Bienvenido de nuevo a La Cueva.' : (matchMedia('(pointer:coarse),(max-width:760px)').matches ? 'Muévete con el joystick. Toca a cualquier trabajador para hablar con él.' : 'Muévete con WASD o las flechas. Haz clic en cualquier trabajador para hablar con él.'));
   window.__lc = { Store, Orch, AI, View, Roster, Chat, Config };
 })();

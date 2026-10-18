@@ -65,9 +65,11 @@ function create(canvas, world, callbacks) {
     b.firstChild.style.background = me ? '#b29a7d' : state[1];
     b.title = me ? 'Tu personaje' : `${e.name} · ${e.role} · ${state[0]}`;
     if (!me) b.setAttribute('aria-label', b.title);
-    b.hidden = !visible || !p.visible || p.x < -40 || p.x > width + 40 || p.y < 0 || p.y > height;
+    b.hidden = !visible || !p.visible || p.x < 0 || p.x > width || p.y < 0 || p.y > height;
     if (b.hidden) return;
-    b.style.transform = `translate(${p.x.toFixed(1)}px,${p.y.toFixed(1)}px) translate(-50%,-100%)`;
+    const half = Math.min(90, Math.max(34, text.length * 3.3 + 15));
+    const labelX = Math.max(half + 6, Math.min(width - half - 6, p.x)), labelY = Math.max(34, p.y);
+    b.style.transform = `translate(${labelX.toFixed(1)}px,${labelY.toFixed(1)}px) translate(-50%,-100%)`;
     b.classList.toggle('selected', selected); b.classList.toggle('me', me);
   }
   function render(cam, ents, player, selected, hover, showNames, reduced, now) {

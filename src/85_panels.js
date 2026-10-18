@@ -6,6 +6,7 @@ const Panels = (() => {
   let current = null, tab = {}, refresh = null;
   const M = () => $('#modal');
   function shell(title, desc, tabs, narrow) {
+    Bus.emit('ui:overlay');
     const m = M(); m.innerHTML = ''; $$('.nb[data-panel]').forEach(b => b.setAttribute('aria-pressed', 'false'));
     const p = h('<section class="panel' + (narrow ? ' narrow' : '') + '"><div class="phead"><div style="flex:1;min-width:0"><h2></h2><p></p></div><button class="x" aria-label="Cerrar" style="position:static">×</button></div>' + (tabs ? '<div class="tabs" role="tablist"></div>' : '') + '<div class="pbody"></div></section>');
     p.querySelector('h2').textContent = title; p.querySelector('.phead p').textContent = desc || ''; if (!desc) p.querySelector('.phead p').remove();
