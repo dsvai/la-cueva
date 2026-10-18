@@ -44,7 +44,8 @@ const AI = (() => {
     const cfg = Config.get();
     if (Activity.today().calls >= cfg.dailyCalls && !o.ignoreDaily) throw { code: 'daily_limit', message: copy('daily_limit') };
     const agent = o.agent;
-    const opts = { signal: o.signal };
+    const opts = { signal: o.signal, resumeState: o.resumeState, onCheckpoint: o.onCheckpoint,
+      context: { agentId: agent.id, projectId: o.projectId || null, planId: o.planId || null } };
     if (agent.tier) opts.modelTier = agent.tier;
     if (agent.model) opts.model = agent.model;
     if (o.onText) opts.onText = o.onText;
@@ -59,11 +60,11 @@ const AI = (() => {
       const r = await sample(o.input, opts);
       const real = r.usage && (r.usage.in || r.usage.out);
       Activity.usage(agent.id, o.projectId, real ? r.usage.in : Math.ceil(inChars / 3.6), real ? r.usage.out : estTokens(r.text));
-      return { text: r.text, truncated: r.truncated, tier: r.modelTierApplied, model: r.modelApplied || '' };
+      return { text: r.text, truncated: r.truncated, stop: r.stop, continuation: r.continuation, usage: r.usage, tier: r.modelTierApplied, model: r.modelApplied || '' };
     } catch (e) {
       const code = (e && e.code) || 'upstream_error';
       if (code !== 'cancelled' && code !== 'not_granted') Activity.usage(agent.id, o.projectId, Math.ceil(inChars / 3.6), estTokens(e && e.text));
-      throw { code, message: code === 'invalid_request' && e.message ? copy(code) + ' ' + e.message : copy(code), text: e && e.text };
+      throw { code, message: code === 'invalid_request' && e.message ? copy(code) + ' ' + e.message : copy(code), text: e && e.text, usage: e && e.usage, continuation: e && e.continuation };
     } finally { Activity.end(liveId); }
   }
   return { init, call, copy, get status() { return status; }, get provider() { return provider; }, get canTools() { return !!(limits && limits.tools); }, get canImages() { return !!(limits && limits.images); }, get limits() { return limits; } };

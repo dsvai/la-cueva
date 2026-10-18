@@ -124,18 +124,25 @@ const Orch = (() => {
     try {
       const th0 = await Store.load('tthread', id); const th = th0 ? JSON.parse(JSON.stringify(th0)) : { id, turns: [] };
       if (!th.turns.length) th.turns.push({ role: 'user', content: await buildFirstTurn(task) });
-      else if (task.resume) th.turns.push({ role: 'user', content: await continuation(task) });
+      else if (task.resume && !th.sample) th.turns.push({ role: 'user', content: await continuation(task) });
       th.turns = compactTurns(th.turns);
-      const ctx = { mode: 'task', agent, task, project: project(task.projectId), signals: { collab: [], sub: [], approval: null, block: null }, events: [] };
+      const ctx = { mode: 'task', agent, task, project: project(task.projectId), signals: th.signals || { collab: [], sub: [], approval: null, block: null }, events: [] };
       const input = [{ role: 'user', content: Prompt.preamble(agent, { project: ctx.project }) }].concat(th.turns);
       if (plan) { plan.calls++; Store.put('plans', plan); }
-      const res = await AI.call({ agent, input, tools: Tools.build(agent, ctx), signal: ctl.signal, projectId: task.projectId, kind: 'task', label: task.title, taskId: id });
-      th.turns.push({ role: 'assistant', content: res.text || '(sin texto)' });
-      Store.put('tthread', th);
+      const res = await AI.call({ agent, input, tools: Tools.build(agent, ctx), signal: ctl.signal, projectId: task.projectId, planId: task.planId, kind: 'task', label: task.title, taskId: id,
+        resumeState: th.sample, onCheckpoint: async state => {
+          th.sample = state; th.signals = JSON.parse(JSON.stringify(ctx.signals)); Store.put('tthread', th);
+          if (!(await Store.flush(10000))) throw { code: 'checkpoint_failed', message: 'No se pudo guardar el avance. Reanuda cuando vuelva la conexión.' };
+        } });
       const fresh = T(id); if (!fresh || fresh.state !== 'en_curso') return;   // pausada o cancelada mientras tanto
       fresh.toolEvents = (fresh.toolEvents || []).concat(ctx.events).slice(-30);
       fresh.resume = null; fresh.resumeNote = null;
       const sg = ctx.signals;
+      if (!res.truncated || sg.block || sg.approval || sg.collab.length) {
+        th.sample = null; th.signals = null;
+        th.turns.push({ role: 'assistant', content: res.text || '(Herramientas ejecutadas; decisión pendiente.)' });
+        Store.put('tthread', th);
+      }
       const dropKids = why => { for (const c of sg.collab) { const x = T(c); if (x && !TERMINAL.has(x.state)) { const r = running.get(c); if (r) { r.why = 'cancel'; r.ctl.abort(); } else setTask(x, { state: 'cancelada' }, 'Cancelada: ' + why); } } };
       if (sg.block) { dropKids('la tarea que la pidió quedó bloqueada'); setTask(fresh, { state: 'bloqueada', error: sg.block }, 'Bloqueo: ' + sg.block); escalate(fresh, 'Bloqueo en «' + fresh.title + '»: ' + sg.block); }
       else if (sg.approval) {
@@ -148,7 +155,13 @@ const Orch = (() => {
         setTask(fresh, { state: 'esperando_colaboracion', waitingOn: sg.collab, draft: trunc(res.text, 600) }, 'Espera a ' + sg.collab.map(c => (Roster.get(T(c).agentId) || {}).name).join(', '));
         if (sg.collab.every(c => { const x = T(c); return x && TERMINAL.has(x.state); })) setTask(fresh, { state: 'en_cola', resume: 'collab' }, 'Colaboraciones recibidas');
       }
-      else complete(fresh, res);
+      else if (res.truncated) {
+        const count = (fresh.continuations || 0) + 1;
+        const automatic = count <= 2;
+        setTask(fresh, { state: automatic ? 'en_cola' : 'pausada', resume: 'continuation', continuations: count,
+          error: automatic ? null : 'La entrega sigue incompleta. Avance guardado; reanuda para continuar.' },
+          automatic ? 'Continúa desde el avance guardado (' + res.stop + ')' : 'Pausada con avance guardado; no es una entrega completa');
+      } else complete(fresh, res);
     } catch (e) {
       const t = T(id); if (!t) return;
       const why = running.get(id) && running.get(id).why;
@@ -185,6 +198,7 @@ const Orch = (() => {
   }
   function kindOf(text) { return /```html/i.test(text) ? 'html' : /```(js|javascript|python|py|liquid|json|ts|css|sh|bash)/i.test(text) ? 'code' : 'doc'; }
   function complete(task, res) {
+    if (res.truncated) throw new Error('No se puede completar una tarea con una respuesta incompleta.');
     const d = Store.put('deliverables', { id: uid('dl'), projectId: task.projectId, planId: task.planId, taskId: task.id, agentId: task.agentId, title: task.title, kind: kindOf(res.text), summary: trunc(res.text.replace(/[#*`>|]/g, '').replace(/\s+/g, ' '), 280), ts: Date.now(), status: 'borrador', truncated: !!res.truncated, chars: res.text.length });
     Store.put('dtext', { id: d.id, text: res.text });
     setTask(task, { state: 'completada', endedAt: Date.now(), resultId: d.id, summary: d.summary }, 'Completada' + (res.truncated ? ' (respuesta cortada por longitud)' : ''));
@@ -204,8 +218,8 @@ const Orch = (() => {
         if (p.waitingOn.every(c => { const x = T(c); return x && TERMINAL.has(x.state); })) setTask(p, { state: 'en_cola', resume: 'collab' }, 'Colaboraciones recibidas');
       }
       // dependientes
-      if (task.planId) for (const t of planTasks(task.planId)) if (t.state === 'pendiente' && (t.deps || []).includes(task.id)) {
-        if (depsDone(t)) setTask(t, { state: 'en_cola' }, 'Dependencias completadas');
+      if (task.planId) for (const t of planTasks(task.planId)) if ((t.state === 'pendiente' || (t.state === 'bloqueada' && t.error === 'Depende de una tarea que no se completó.')) && (t.deps || []).includes(task.id)) {
+        if (depsDone(t)) setTask(t, { state: 'en_cola', error: null }, 'Dependencias completadas');
         else if (t.deps.some(d => { const x = T(d); return x && (x.state === 'fallida' || x.state === 'cancelada'); })) setTask(t, { state: 'bloqueada', error: 'Depende de una tarea que no se completó.' }, 'Bloqueada por dependencia');
       }
     }
@@ -239,7 +253,15 @@ const Orch = (() => {
     try {
       const input = [{ role: 'user', content: Prompt.preamble(daniel, { project: project(plan.projectId) }) }, { role: 'user', content: parts.join('\n\n') }];
       plan.calls++;
-      const res = await AI.call({ agent: daniel, input, projectId: plan.projectId, kind: 'task', label: 'Consolidación' });
+      const threadId = pid + '-summary';
+      const previous = await Store.load('tthread', threadId);
+      const res = await AI.call({ agent: daniel, input, projectId: plan.projectId, planId: pid, kind: 'task', label: 'Consolidación',
+        resumeState: previous && previous.sample, onCheckpoint: async sample => {
+          Store.put('tthread', { id: threadId, turns: [], sample });
+          if (!(await Store.flush(10000))) throw { code: 'checkpoint_failed' };
+        } });
+      if (res.truncated) throw { code: 'incomplete_completion', message: 'El informe está incompleto. Avance guardado; reanuda el plan para continuarlo.' };
+      Store.put('tthread', { id: threadId, turns: [], sample: null });
       if ((P(pid) || {}).state !== 'consolidando') return;   // cancelado mientras consolidaba
       const d = Store.put('deliverables', { id: uid('dl'), projectId: plan.projectId, planId: pid, taskId: null, agentId: 'daniel', title: 'Informe de entrega · ' + plan.title, kind: 'informe', summary: trunc(res.text.replace(/[#*`>|]/g, '').replace(/\s+/g, ' '), 280), ts: Date.now(), status: 'en_revision', chars: res.text.length });
       Store.put('dtext', { id: d.id, text: res.text });

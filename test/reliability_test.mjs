@@ -34,7 +34,66 @@ try {
     assert.equal((await getDoc('approvals', 'regression-approval')).data.execState, 'hecha');
     globalThis.fetch = originalFetch;
   });
+  await test('tool-only steps retain their checkpoint and resume without replay', async () => {
+    let steps = 0, tools = 0, saved;
+    const sample = R.makeSample(async () => {
+      steps++;
+      return steps <= 2 ? { text: '', stop: 'tool_use', toolCalls: [{ id: 'call-' + steps, name: 'observe', input: {} }], usage: { in: 100, out: 10 } } : { text: 'Entrega completa', stop: 'end', usage: { in: 50, out: 20 } };
+    }, { maxSteps: 2 });
+    const options = { tools: [{ name: 'observe', execute: async () => { tools++; return 'ok'; } }], onCheckpoint: async x => { saved = x; } };
+    const first = await sample('Local test', options);
+    assert.equal(first.stop, 'max_steps'); assert.equal(first.truncated, true);
+    assert.equal(first.usage.in, 200); assert.equal(first.usage.calls, 2);
+    assert.equal(saved.turns.at(-1).content[0].type, 'tool_result');
+    const second = await sample('ignored', { ...options, resumeState: first.continuation });
+    assert.equal(second.truncated, false); assert.equal(second.text, 'Entrega completa');
+    assert.equal(tools, 2); assert.equal(steps, 3);
+  });
+  await test('a failed provider step preserves earlier usage and tool history', async () => {
+    let steps = 0;
+    const sample = R.makeSample(async () => {
+      if (++steps === 2) throw { code: 'rate_limited' };
+      return { text: '', stop: 'tool_use', toolCalls: [{ id: 'call', name: 'observe', input: {} }], usage: { in: 100, out: 20, searches: 1 } };
+    });
+    await assert.rejects(sample('test', { tools: [{ name: 'observe', execute: async () => 'done' }] }), e => {
+      assert.equal(e.code, 'rate_limited'); assert.equal(e.usage.in, 100);
+      assert.equal(e.usage.searches, 1); assert.equal(e.continuation.turns.at(-1).content[0].type, 'tool_result'); return true;
+    });
+  });
+  await test('incomplete tasks persist progress without completing or starting dependants', async () => {
+    const { loadRuntime } = await import('../server/runtime.js');
+    const { runOps } = await import('../server/docs.js');
+    const db = R.makeRemoteDb(ops => runOps(ops, { allowLease: true }), { strictLease: true });
+    await db.start();
+    let finish = false;
+    const sample = R.makeSample(async () => finish
+      ? { text: 'Entrega completa', stop: 'end', usage: { in: 5, out: 5 } }
+      : { text: 'Avance parcial', stop: 'max_tokens', usage: { in: 5, out: 5 } });
+    sample.provider = 'mock';
+    const rt = loadRuntime(db, sample, 'worker');
+    const until = async predicate => { const end = Date.now() + 10000; while (!predicate() && Date.now() < end) await new Promise(r => setTimeout(r, 50)); assert.ok(predicate(), 'runtime condition timed out'); };
+    try {
+      await rt.Store.init(); await rt.AI.init(); await rt.Leader.start();
+      const plan = rt.Orch.createPlan({ titulo: 'Continuation test', tareas: [
+        { clave: 'first', titulo: 'First task', responsable: 'alex' },
+        { clave: 'next', titulo: 'Dependent task', responsable: 'clara', depende_de: ['first'] }
+      ] }, { autoApprove: true });
+      const [first, next] = plan.taskIds;
+      await until(() => rt.Store.get('tasks', first).state === 'pausada');
+      assert.equal(rt.Store.get('tasks', next).state, 'pendiente');
+      assert.equal(rt.Store.all('deliverables').length, 0);
+      assert.ok((await getDoc('tthread', first)).data.sample.turns.some(t => t.content === 'Avance parcial'));
+      finish = true;
+      // A dependent blocked by a previous failure must also recover when the prerequisite succeeds.
+      rt.Store.patch('tasks', next, { state: 'bloqueada', error: 'Depende de una tarea que no se completó.' });
+      rt.Orch.resumePlan(plan.id);
+      await until(() => rt.Store.get('plans', plan.id).state === 'en_revision');
+      assert.equal(rt.Store.get('tasks', first).state, 'completada');
+      assert.equal(rt.Store.get('tasks', next).state, 'completada');
+    } finally { rt.Orch.setHold(true); rt.Orch.drain('pause'); await rt.Store.flush(); await rt.Leader.stop(); db.stop(); }
+  });
   console.log('\n' + passed + ' reliability regressions passed');
+  process.exitCode = 0;
 } finally {
   globalThis.fetch = originalFetch;
   await pg.close();

@@ -146,26 +146,37 @@
     const maxSteps = cfg.maxSteps || 10;
     async function sample(input, o) {
       o = o || {};
-      const turns = typeof input === 'string' ? [{ role: 'user', content: input }] : input.map(t => ({ role: t.role, content: t.content }));
-      if (o.images && o.images.length) {
+      const prior = o.resumeState;
+      const turns = prior ? clone(prior.turns) : (typeof input === 'string' ? [{ role: 'user', content: input }] : input.map(t => ({ role: t.role, content: t.content })));
+      if (prior && ['max_tokens', 'empty_completion'].includes(prior.stop)) turns.push({ role: 'user', content: 'Continúa desde el avance guardado y completa la entrega. No repitas las herramientas ya ejecutadas.' });
+      if (!prior && o.images && o.images.length) {
         let li = turns.length - 1; while (li >= 0 && turns[li].role !== 'user') li--;
         if (li >= 0) { const imgs = await Promise.all(o.images.slice(0, 4).map(blobToBlock)); turns[li] = { role: 'user', content: [{ type: 'text', text: String(turns[li].content || '') }].concat(imgs) }; }
       }
       const tools = (o.tools || []).filter(Boolean);
       const schemas = tools.map(t => ({ name: t.name, description: t.description || '', inputSchema: t.inputSchema || { type: 'object', properties: {} } }));
-      const texts = []; const usage = { in: 0, out: 0 }; let model = '', stop = 'end';
+      const texts = prior ? prior.texts.slice() : []; const usage = { in: 0, out: 0, searches: 0, calls: 0 }; let model = '', stop = 'end';
+      const snapshot = () => ({ turns: clone(turns), texts: texts.slice(), stop });
+      const checkpoint = async () => { if (o.onCheckpoint) await o.onCheckpoint(snapshot()); };
+      try {
       for (let i = 0; i < maxSteps; i++) {
         if (o.signal && o.signal.aborted) throw { code: 'cancelled', text: texts.join('\n\n') };
         const prefix = texts.length ? texts.join('\n\n') + '\n\n' : '';
         let r;
         try {
-          r = await step({ messages: turns, tools: schemas, tier: o.modelTier || 'default', model: o.model || '', web: !!o.web, signal: o.signal, onText: o.onText ? (d, cum) => o.onText({ text: prefix + cum, delta: d }) : null });
-        } catch (e) { throw { code: (e && e.code) || 'upstream_error', message: e && e.message, text: texts.join('\n\n') }; }
+          r = await step({ messages: turns, tools: schemas, tier: o.modelTier || 'default', model: o.model || '', web: !!o.web, context: o.context, signal: o.signal, onText: o.onText ? (d, cum) => o.onText({ text: prefix + cum, delta: d }) : null });
+        } catch (e) { if (e && e.usage) for (const k of Object.keys(usage)) usage[k] += Number(e.usage[k]) || 0; throw e; }
+        usage.calls += (r.usage && r.usage.calls) || 1;
         usage.in += (r.usage && r.usage.in) || 0; usage.out += (r.usage && r.usage.out) || 0; usage.searches = (usage.searches || 0) + ((r.usage && r.usage.searches) || 0); model = r.model || model;
         if (r.text) texts.push(r.text);
         // turno en pausa (búsquedas web largas): se devuelve tal cual y el modelo continúa
-        if (r.stop === 'pause' && r.raw) { turns.push({ role: 'assistant', content: [{ type: 'provider_raw', provider: 'anthropic', blocks: r.raw }] }); continue; }
-        if (r.stop !== 'tool_use' || !r.toolCalls || !r.toolCalls.length) { stop = r.stop; break; }
+        if (r.stop === 'pause' && r.raw) { stop = 'pause'; turns.push({ role: 'assistant', content: [{ type: 'provider_raw', provider: 'anthropic', blocks: r.raw }] }); await checkpoint(); continue; }
+        if (r.stop !== 'tool_use' || !r.toolCalls || !r.toolCalls.length) {
+          stop = r.stop || 'end';
+          if (r.text) turns.push({ role: 'assistant', content: r.text });
+          if (stop === 'end' && !(r.text || '').trim()) stop = 'empty_completion';
+          await checkpoint(); break;
+        }
         if (!schemas.length) { stop = r.stop; break; }
         turns.push({ role: 'assistant', content: r.raw ? [{ type: 'provider_raw', provider: 'anthropic', blocks: r.raw }] : (r.text ? [{ type: 'text', text: r.text }] : []).concat(r.toolCalls.map(tc => ({ type: 'tool_call', id: tc.id, name: tc.name, input: tc.input || {} }))) });
         const results = [];
@@ -185,11 +196,16 @@
           results.push(tr);
         }
         turns.push({ role: 'user', content: results });
-        if (i === maxSteps - 1) stop = 'max_steps';
+        stop = 'max_steps';
+        await checkpoint();
       }
       const text = texts.join('\n\n');
-      if (!text.trim()) throw { code: stop === 'refusal' ? 'refused' : 'empty_completion', text: '' };
-      return { text, truncated: stop === 'max_tokens' || stop === 'max_steps', modelTierApplied: o.modelTier || 'default', modelApplied: model, usage };
+      if (stop === 'refusal') throw { code: 'refused' };
+      const truncated = ['max_tokens', 'max_steps', 'pause', 'empty_completion'].includes(stop);
+      return { text, stop, truncated, continuation: truncated ? snapshot() : null, modelTierApplied: o.modelTier || 'default', modelApplied: model, usage };
+      } catch (e) {
+        throw { code: (e && e.code) || 'upstream_error', message: e && e.message, text: texts.join('\n\n'), usage, continuation: snapshot() };
+      }
     }
     sample.limits = async () => cfg.limits || { maxPromptBytes: 900000, tools: { maxCount: 20 }, images: { maxCount: 4, maxInputBytes: 3e6, mediaTypes: ['image/png', 'image/jpeg', 'image/gif', 'image/webp'] } };
     return sample;
@@ -200,7 +216,7 @@
     return async function (req) {
       let res;
       try {
-        res = await fetch((base || '') + '/api/llm', { method: 'POST', credentials: 'same-origin', headers: { 'content-type': 'application/json', 'x-lc': '1' }, body: JSON.stringify({ messages: req.messages, tools: req.tools, tier: req.tier, model: req.model, web: !!req.web }), signal: req.signal });
+        res = await fetch((base || '') + '/api/llm', { method: 'POST', credentials: 'same-origin', headers: { 'content-type': 'application/json', 'x-lc': '1' }, body: JSON.stringify({ messages: req.messages, tools: req.tools, tier: req.tier, model: req.model, web: !!req.web, context: req.context }), signal: req.signal });
       } catch (e) { throw { code: req.signal && req.signal.aborted ? 'cancelled' : 'upstream_error' }; }
       if (res.status === 401) throw { code: 'session_expired' };
       if (!res.ok || !res.body) { let j = {}; try { j = await res.json(); } catch (_) { } throw { code: j.code || 'upstream_error', message: j.message }; }
