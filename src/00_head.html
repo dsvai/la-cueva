@@ -63,6 +63,17 @@ nav.main::-webkit-scrollbar{display:none}
 /* ===== escenario ===== */
 #stage{position:fixed;top:calc(var(--hdr) + env(safe-area-inset-top,0px));left:0;right:0;bottom:0}
 #world{width:100%;height:100%;display:block;touch-action:none;cursor:grab;image-rendering:pixelated}
+#world[data-renderer=webgl]{image-rendering:auto}
+.studio-labels{position:absolute;inset:0;pointer-events:none;overflow:hidden;z-index:2}
+.studio-person{position:absolute;left:0;top:0;display:flex;align-items:center;gap:5px;min-height:26px;padding:3px 8px;border:1px solid rgba(61,48,40,.2);border-radius:5px;background:rgba(245,238,226,.96);color:var(--forest-d);font:600 11px/1.2 var(--f-body);white-space:nowrap;pointer-events:auto;box-shadow:0 2px 8px rgba(49,40,27,.12)}
+.studio-person i{width:5px;height:5px;border-radius:50%;flex-shrink:0}
+.studio-person[hidden]{display:none!important}
+.studio-person:hover,.studio-person.selected{background:var(--forest);color:var(--beige);border-color:var(--forest)}
+.studio-person.me{pointer-events:none;background:var(--brown);color:var(--beige)}
+.studio-caption{position:absolute;left:24px;bottom:24px;display:flex;flex-direction:column;gap:3px;padding:10px 14px;background:rgba(245,238,226,.9);border:1px solid var(--line);border-radius:6px;pointer-events:none;color:var(--ink-2);z-index:1;font-size:11px;line-height:1.4}
+.studio-caption strong{font-family:var(--f-display);letter-spacing:.15em;color:var(--forest);font-size:12px}
+.studio-error{pointer-events:auto;border-color:var(--bad)}
+@media(max-width:699px){.studio-caption{left:14px;bottom:155px;padding:7px 10px}.studio-caption span{max-width:150px}.studio-person{min-height:32px;padding:5px 8px}}
 .hud{position:absolute;right:calc(14px + env(safe-area-inset-right,0px));bottom:calc(14px + env(safe-area-inset-bottom,0px));display:flex;flex-direction:column;gap:6px;z-index:5}
 .hb{width:40px;height:40px;border-radius:var(--r1);border:1px solid rgba(0,0,0,.45);background:rgba(42,33,27,.88);color:var(--beige);display:grid;place-items:center;box-shadow:0 2px 0 rgba(0,0,0,.35)}
 .hb:hover{background:var(--forest)}
@@ -79,6 +90,7 @@ nav.main::-webkit-scrollbar{display:none}
 .x{position:absolute;top:8px;right:8px;width:30px;height:30px;border:0;border-radius:var(--r1);background:transparent;color:var(--ink-2);font-size:20px;line-height:1}
 .x:hover{background:var(--paper-2)}
 .av{image-rendering:pixelated;border-radius:var(--r1);flex-shrink:0;background:var(--forest-l);display:block}
+.av{image-rendering:auto}
 /* cruceta táctil */
 #pad{position:absolute;left:calc(16px + env(safe-area-inset-left,0px));bottom:calc(16px + env(safe-area-inset-bottom,0px));width:120px;height:120px;z-index:5;display:none}
 #pad button{position:absolute;width:40px;height:40px;border-radius:var(--r1);border:1px solid rgba(0,0,0,.45);background:rgba(42,33,27,.78);color:var(--beige);font-size:16px}

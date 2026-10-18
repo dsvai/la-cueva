@@ -2,7 +2,7 @@
    LA CUEVA · vista: cámara, dibujo, personajes, tu avatar y entrada
    ============================================================ */
 const View = (() => {
-  let cv, ctx, staticLayer = null, phase = null, dpr = 1, vw = 0, vh = 0;
+  let cv, ctx, studio = null, staticLayer = null, phase = null, dpr = 1, vw = 0, vh = 0;
   const cam = { x: 0, y: 0, z: 2, follow: true, tx: null, ty: null };
   const ents = new Map();               // agentes visibles
   let player = null, selected = null, hover = null;
@@ -10,7 +10,8 @@ const View = (() => {
   let showNames = true, ambient = true, reduced = false;
   let statusOf = () => ({ state: 'idle' });
   let onSelect = () => { }, onOpenChat = () => { };
-  const Z_STEPS = [0.5, 0.75, 1, 1.5, 2, 3, 4];
+  const Z_STEPS = [0.2, 0.35, 0.5, 0.75, 1, 1.25, 1.5, 2, 3, 4];
+  function clearHover() { if (hover) { hover = null; Bus.emit('view:hover', null); } }
 
   /* ---------- entidades ---------- */
   function mkEnt(id, P, x, y, dir) {
@@ -117,6 +118,7 @@ const View = (() => {
     if (!mx && !my) { player.pose = 'stand'; return; }
     cam.follow = true; cam.tx = null;
     const l = Math.hypot(mx, my); mx /= l; my /= l;
+    if (studio) { const d = studio.direction(mx, my); mx = d.x; my = d.y; }
     const sp = 120 * dt;
     if (Math.abs(mx) > Math.abs(my)) player.dir = mx > 0 ? 'E' : 'W'; else player.dir = my > 0 ? 'S' : 'N';
     player.pose = 'walk';
@@ -224,13 +226,17 @@ const View = (() => {
   function frame(ts) {
     raf = requestAnimationFrame(frame);
     const now = ts / 1000, dt = Math.min(0.05, lastT ? now - lastT : 0.016); lastT = now;
-    if (now - phaseCheck > 30) { phaseCheck = now; const p = World.phaseNow(); if (p !== phase) { phase = p; staticLayer = World.buildStatic(p); } }
+    if (!studio && now - phaseCheck > 30) { phaseCheck = now; const p = World.phaseNow(); if (p !== phase) { phase = p; staticLayer = World.buildStatic(p); } }
     for (const e of ents.values()) updateAgent(e, dt, now);
     updatePlayer(dt);
     // cámara
     if (cam.tx != null) { cam.x = lerp(cam.x, cam.tx, Math.min(1, dt * 5)); cam.y = lerp(cam.y, cam.ty, Math.min(1, dt * 5)); if (Math.hypot(cam.x - cam.tx, cam.y - cam.ty) < 1) cam.tx = null; }
     else if (cam.follow && player) { cam.x = lerp(cam.x, player.x, Math.min(1, dt * 6)); cam.y = lerp(cam.y, player.y - 16, Math.min(1, dt * 6)); }
     clampCam();
+    if (studio) {
+      studio.render(cam, ents, player, selected && selected.id, hover && hover.id, showNames, reduced, now);
+      Bus.emit('view:frame'); return;
+    }
     const s = cam.z * dpr;
     cam.vw = vw / cam.z; cam.vh = vh / cam.z; cam.vx = cam.x - cam.vw / 2; cam.vy = cam.y - cam.vh / 2;
     ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.fillStyle = '#1e1712'; ctx.fillRect(0, 0, cv.width, cv.height);
@@ -265,38 +271,51 @@ const View = (() => {
   let _deskIdx = null;
   function deskIndex() { if (!_deskIdx) { _deskIdx = new Map(); for (const st of Object.values(World.stations)) _deskIdx.set(st.desk, st); for (const st of World.spare) _deskIdx.set(st.desk, st); } return _deskIdx; }
   function clampCam() {
+    if (studio) { cam.x = clamp(cam.x, 0, World.W * TILE); cam.y = clamp(cam.y, 0, World.H * TILE); return; }
     const ww = World.W * TILE, wh = World.H * TILE, hw = vw / cam.z / 2, hh = vh / cam.z / 2;
     cam.x = ww < hw * 2 ? ww / 2 : clamp(cam.x, hw, ww - hw); cam.y = wh < hh * 2 ? wh / 2 : clamp(cam.y, hh, wh - hh);
   }
   function resize() {
     const r = cv.getBoundingClientRect(); dpr = Math.min(3, window.devicePixelRatio || 1);
-    vw = r.width; vh = r.height; cv.width = Math.round(vw * dpr); cv.height = Math.round(vh * dpr);
+    vw = r.width; vh = r.height;
+    if (studio) studio.resize(vw, vh, dpr);
+    else { cv.width = Math.round(vw * dpr); cv.height = Math.round(vh * dpr); }
   }
-  function screenToWorld(sx, sy) { return { x: cam.x + (sx - vw / 2) / cam.z, y: cam.y + (sy - vh / 2) / cam.z }; }
+  function screenToWorld(sx, sy) { return studio ? studio.screenToWorld(sx, sy, cam) : { x: cam.x + (sx - vw / 2) / cam.z, y: cam.y + (sy - vh / 2) / cam.z }; }
   function pick(sx, sy) {
+    if (studio) return ents.get(studio.pick(sx, sy)) || null;
     const p = screenToWorld(sx, sy); let best = null, bd = 1e9;
     for (const e of ents.values()) { const cx = e.x, cy = e.y - 20; if (Math.abs(p.x - cx) < 13 && p.y > e.y - 44 && p.y < e.y + 2) { const d = Math.abs(p.y - cy); if (d < bd) { bd = d; best = e; } } }
     return best;
   }
   function zoomBy(dir, sx, sy) {
-    let i = Z_STEPS.findIndex(z => z >= cam.z - 1e-6); if (i < 0) i = Z_STEPS.length - 1;
-    const ni = clamp(i + dir, 0, Z_STEPS.length - 1); if (Z_STEPS[ni] === cam.z) return;
-    if (sx != null) { const before = screenToWorld(sx, sy); cam.z = Z_STEPS[ni]; const after = screenToWorld(sx, sy); cam.x += before.x - after.x; cam.y += before.y - after.y; if (dir > 0 || !cam.follow) cam.follow = false; }
-    else cam.z = Z_STEPS[ni];
+    clearHover();
+    const next = (dir > 0 ? Z_STEPS : [...Z_STEPS].reverse()).find(z => dir > 0 ? z > cam.z + 1e-6 : z < cam.z - 1e-6);
+    if (next == null) return;
+    if (sx != null) { const before = screenToWorld(sx, sy); cam.z = next; const after = screenToWorld(sx, sy); cam.x += before.x - after.x; cam.y += before.y - after.y; if (dir > 0 || !cam.follow) cam.follow = false; }
+    else cam.z = next;
     Bus.emit('view:zoom', cam.z);
   }
   const pad = { x: 0, y: 0 };
 
   function init(canvas, opts) {
-    cv = canvas; ctx = cv.getContext('2d');
+    cv = canvas;
     statusOf = opts.statusOf || statusOf; onSelect = opts.onSelect || onSelect; onOpenChat = opts.onOpenChat || onOpenChat;
+    try { studio = window.LC_STUDIO && window.LC_STUDIO.create(cv, World, { onSelect: id => select(id), onOpenChat: id => { select(id); onOpenChat(id); } }); }
+    catch (e) { console.warn('Vista 3D no disponible; se conserva el modo compatible.', e); }
+    if (!studio) {
+      // A canvas that acquired WebGL cannot switch back to 2D; replace it before fallback.
+      const replacement = cv.cloneNode(false); cv.replaceWith(replacement); cv = replacement;
+      cv.dataset.renderer = 'canvas'; ctx = cv.getContext('2d');
+    }
     reduced = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
     resize(); window.addEventListener('resize', resize);
     if (window.ResizeObserver) new ResizeObserver(resize).observe(cv);
-    phase = World.phaseNow(); staticLayer = World.buildStatic(phase);
+    phase = World.phaseNow(); if (!studio) staticLayer = World.buildStatic(phase);
     player = mkEnt('__me', PLAYER_LOOK, World.spawn.x, World.spawn.y, 'N'); player.mode = 'player';
-    // escritorio: se abre con la oficina entera a la vista, centrada en el núcleo; móvil: siguiendo a tu personaje
-    if (vw >= 700) { cam.follow = false; const mh = World.H * TILE; cam.z = mh <= vh ? 1 : 0.75; cam.x = World.W * TILE / 2; cam.y = Math.min(mh / 2, vh / cam.z / 2 + 4); }
+    // Estudio: núcleo de dirección en escritorio; móvil: siguiendo a tu personaje.
+    if (studio && vw >= 700) { cam.follow = false; cam.x = World.rooms.DIR.cx; cam.y = World.rooms.DIR.cy; cam.z = 1.25; }
+    else if (vw >= 700) { cam.follow = false; const mh = World.H * TILE; cam.z = mh <= vh ? 1 : 0.75; cam.x = World.W * TILE / 2; cam.y = Math.min(mh / 2, vh / cam.z / 2 + 4); }
     else { cam.x = player.x; cam.y = player.y - 60; cam.z = 1; }
     // entrada: teclado
     window.addEventListener('keydown', ev => {
@@ -314,22 +333,27 @@ const View = (() => {
     cv.addEventListener('pointermove', ev => {
       if (ptrs.has(ev.pointerId)) ptrs.set(ev.pointerId, { x: ev.offsetX, y: ev.offsetY });
       if (pinch && ptrs.size === 2) { const [a, b] = [...ptrs.values()], d = Math.hypot(a.x - b.x, a.y - b.y); if (d / pinch.d > 1.35) { zoomBy(1); pinch.d = d; } else if (d / pinch.d < 0.74) { zoomBy(-1); pinch.d = d; } return; }
-      if (drag) { const dx = ev.offsetX - drag.x, dy = ev.offsetY - drag.y; if (Math.abs(dx) + Math.abs(dy) > 5) drag.moved = true; if (drag.moved) { cam.follow = false; cam.tx = null; cam.x = drag.cx - dx / cam.z; cam.y = drag.cy - dy / cam.z; } return; }
+      if (drag) { const dx = ev.offsetX - drag.x, dy = ev.offsetY - drag.y; if (Math.abs(dx) + Math.abs(dy) > 5) drag.moved = true; if (drag.moved) {
+        cam.follow = false; cam.tx = null; clearHover();
+        if (studio) { const startCam = { x: drag.cx, y: drag.cy, z: cam.z }, a = studio.screenToWorld(drag.x, drag.y, startCam), b = studio.screenToWorld(ev.offsetX, ev.offsetY, startCam); cam.x = drag.cx + a.x - b.x; cam.y = drag.cy + a.y - b.y; }
+        else { cam.x = drag.cx - dx / cam.z; cam.y = drag.cy - dy / cam.z; }
+      } return; }
       const h = pick(ev.offsetX, ev.offsetY); if (h !== hover) { hover = h; cv.style.cursor = h ? 'pointer' : 'grab'; Bus.emit('view:hover', h ? { id: h.id, x: ev.offsetX, y: ev.offsetY } : null); }
     });
     const end = ev => { ptrs.delete(ev.pointerId); if (ptrs.size < 2) pinch = null; if (drag && !drag.moved && ev.type === 'pointerup') { const h = pick(ev.offsetX, ev.offsetY); select(h ? h.id : null); } drag = null; };
     cv.addEventListener('pointerup', end); cv.addEventListener('pointercancel', end);
+    cv.addEventListener('pointerleave', clearHover);
     cv.addEventListener('dblclick', ev => { const h = pick(ev.offsetX, ev.offsetY); if (h) onOpenChat(h.id); });
     cv.addEventListener('wheel', ev => { ev.preventDefault(); zoomBy(ev.deltaY < 0 ? 1 : -1, ev.offsetX, ev.offsetY); }, { passive: false });
     raf = requestAnimationFrame(frame);
   }
   function select(id) { selected = id ? ents.get(id) || null : null; onSelect(id); }
-  function focusAgent(id) { const e = ents.get(id); if (!e) return; cam.follow = false; cam.tx = e.x; cam.ty = e.y - 20; if (cam.z < 2) cam.z = 2; select(id); }
-  function focusRoom(rid) { const R = World.rooms[rid]; if (!R) return; cam.follow = false; cam.tx = R.cx; cam.ty = R.cy; if (cam.z < 1.5) cam.z = 1.5; }
-  function centerMe() { cam.follow = true; cam.tx = null; }
-  function overview() { cam.follow = false; cam.tx = World.W * TILE / 2; cam.ty = World.H * TILE / 2; const fit = Math.min(vw / (World.W * TILE), vh / (World.H * TILE)); cam.z = [...Z_STEPS].reverse().find(z => z <= fit) || Z_STEPS[0]; Bus.emit('view:zoom', cam.z); }
-  function screenPosOf(id) { const e = ents.get(id); if (!e) return null; return { x: (e.x - cam.x) * cam.z + vw / 2, y: (e.y - 46 - cam.y) * cam.z + vh / 2 }; }
+  function focusAgent(id) { const e = ents.get(id); if (!e) return; clearHover(); cam.follow = false; cam.tx = e.x; cam.ty = e.y - 20; if (cam.z < 2) cam.z = 2; select(id); }
+  function focusRoom(rid) { const R = World.rooms[rid]; if (!R) return; clearHover(); cam.follow = false; cam.tx = R.cx; cam.ty = R.cy; if (cam.z < 1.5) cam.z = 1.5; }
+  function centerMe() { clearHover(); cam.follow = true; cam.tx = null; if (studio && cam.z < 1.25) cam.z = 1.5; }
+  function overview() { clearHover(); cam.follow = false; if (studio) { const s = studio.overview(); cam.tx = s.x; cam.ty = s.y; cam.z = s.z; } else { cam.tx = World.W * TILE / 2; cam.ty = World.H * TILE / 2; const fit = Math.min(vw / (World.W * TILE), vh / (World.H * TILE)); cam.z = [...Z_STEPS].reverse().find(z => z <= fit) || Z_STEPS[0]; } Bus.emit('view:zoom', cam.z); }
+  function screenPosOf(id) { const e = ents.get(id); if (!e) return null; if (studio) return studio.project(e.x, e.y, e.pose === 'sit' ? 1.62 : 1.94); return { x: (e.x - cam.x) * cam.z + vw / 2, y: (e.y - 46 - cam.y) * cam.z + vh / 2 }; }
   function setPad(x, y) { pad.x = x; pad.y = y; }
-  function rebuildStatic() { staticLayer = World.buildStatic(phase); }
+  function rebuildStatic() { if (!studio) staticLayer = World.buildStatic(phase); }
   return { init, setAgents, select, focusAgent, focusRoom, centerMe, overview, zoomBy, screenPosOf, setPad, rebuildStatic, get selected() { return selected && selected.id; }, set showNames(v) { showNames = v; }, set ambient(v) { ambient = v; }, cam, ents, _player: () => player };
 })();

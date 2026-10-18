@@ -3,20 +3,24 @@
   "private": true,
   "version": "0.4.0",
   "type": "module",
-  "description": "La Cueva by Daniel: agencia digital de agentes de IA (frontend pixel art + backend en Vercel)",
-  "engines": { "node": ">=20" },
+  "description": "La Cueva by Daniel: agencia digital de agentes de IA (estudio 3D isométrico + backend en Vercel)",
+  "engines": {
+    "node": ">=20"
+  },
   "scripts": {
     "build": "node build.js",
     "dev": "node server/dev.js",
-    "test": "node test/server_test.mjs && node test/reliability_test.mjs"
+    "test": "node test/server_test.mjs && node test/reliability_test.mjs && node test/studio_test.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.135.0",
     "@vercel/functions": "^3.10.1",
     "openai": "^7.38.0",
-    "pg": "^8.23.1"
+    "pg": "^8.23.1",
+    "three": "0.186.1"
   },
   "devDependencies": {
-    "@electric-sql/pglite": "^0.5.10"
+    "@electric-sql/pglite": "^0.5.10",
+    "esbuild": "0.28.2"
   }
 }
