@@ -100,12 +100,18 @@ const Panels = (() => {
   }
   function usage(b, pid) {
     const days = Store.all('usage').sort((a, c) => a.id.localeCompare(c.id)).slice(-30); const cfg = Config.get();
-    const tot = { calls: 0, tok: 0 }, byA = {}, byP = {};
-    for (const d of days) { for (const [k, v] of Object.entries(d.byProject || {})) { if (pid !== null && k !== pid) continue; const x = byP[k] || (byP[k] = { calls: 0, tok: 0 }); x.calls += v.calls; x.tok += v.inTok + v.outTok; } if (pid === null) { tot.calls += d.calls; tot.tok += d.inTok + d.outTok; for (const [k, v] of Object.entries(d.byAgent || {})) { const x = byA[k] || (byA[k] = { calls: 0, tok: 0, inTok: 0, outTok: 0 }); x.calls += v.calls; x.tok += v.inTok + v.outTok; x.inTok += v.inTok; x.outTok += v.outTok; } } }
-    if (pid !== null) { const x = byP[pid] || { calls: 0, tok: 0 }; tot.calls = x.calls; tot.tok = x.tok; }
+    const tot = { calls: 0, tok: 0, inTok: 0, outTok: 0, searches: 0 }, byA = {}, byP = {};
+    const add = (target, v) => { for (const key of ['calls', 'inTok', 'outTok', 'searches']) target[key] = (target[key] || 0) + (Number(v[key]) || 0); target.tok = target.inTok + target.outTok; };
+    for (const d of days) {
+      for (const [k, v] of Object.entries(d.byProject || {})) { if (pid !== null && k !== pid) continue; add(byP[k] ||= {}, v); }
+      if (pid === null) { add(tot, d); for (const [k, v] of Object.entries(d.byAgent || {})) add(byA[k] ||= {}, v); }
+    }
+    if (pid !== null) Object.assign(tot, byP[pid] || {});
     const price = (parseFloat(cfg.priceIn) || 0) > 0 || (parseFloat(cfg.priceOut) || 0) > 0;
-    b.append(h('<div class="note">' + (LC_SERVER ? 'Las llamadas y los tokens son los que devuelve el proveedor de IA (en conversaciones antiguas pueden ser estimados). Cada llamada se factura en tu cuenta de Anthropic u OpenAI: define el precio por millón de tokens en Ajustes para ver el coste estimado.' : 'Las llamadas se cuentan exactamente; los tokens son una <b>estimación</b> a partir del texto enviado y recibido. Ahora la IA usa tu plan de Claude, así que no hay coste por llamada. Si en la Fase 4 conectas una API de pago, define el precio en Ajustes para ver el coste estimado.') + '</div>'));
-    const g = h('<div class="grid g4" style="margin-top:12px"></div>'); g.innerHTML = kpi(tot.calls, 'Llamadas (30 días)') + kpi('≈ ' + fmtNum(tot.tok), 'Tokens estimados') + (price ? kpi('≈ ' + (tot.tok / 1e6 * ((parseFloat(cfg.priceIn) || 0) * .7 + (parseFloat(cfg.priceOut) || 0) * .3)).toFixed(2) + ' €', 'Coste estimado') : kpi('—', 'Coste', 'Sin precio configurado')); b.append(g);
+    b.append(h('<div class="note">' + (LC_SERVER ? 'Desde esta actualización, el servidor cuenta cada petición al proveedor (también dentro de un turno) y limita el presupuesto antes de enviarla. Guarda los tokens y búsquedas recibidos incluso si un paso posterior falla. Un error puede no devolver todos los tokens facturados; el historial anterior puede contener estimaciones. El coste usa las tarifas manuales de tokens de Ajustes; búsquedas y otros cargos quedan aparte.' : 'En el artefacto, los tokens son una estimación. Configura las tarifas en Ajustes para estimar su coste.') + '</div>'));
+    const amount = (tot.inTok * (parseFloat(cfg.priceIn) || 0) + tot.outTok * (parseFloat(cfg.priceOut) || 0)) / 1e6;
+    const g = h('<div class="grid g4" style="margin-top:12px"></div>');
+    g.innerHTML = kpi(tot.calls, 'Peticiones de IA (30 días)') + kpi(fmtNum(tot.tok), LC_SERVER ? 'Tokens registrados' : 'Tokens estimados') + (price ? kpi('≈ ' + amount.toFixed(2) + ' €', 'Estimación con tarifas manuales', 'Solo tokens; búsquedas aparte.') : kpi('—', 'Coste', 'Sin precio configurado')) + kpi(tot.searches, 'Búsquedas registradas'); b.append(g);
     if (days.length) {
       b.append(h('<div class="sec-h">Llamadas por día</div>'));
       const max = Math.max(1, ...days.map(d => pid === null ? d.calls : ((d.byProject || {})[pid] || {}).calls || 0));
@@ -341,9 +347,9 @@ const Panels = (() => {
       const okNow = i.id === 'claude' ? AI.status === 'ok' : (LC_SERVER && i.id === 'openai' ? AI.provider === 'openai' : false);
       const c = h('<div class="card"><div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"><b style="font-family:var(--f-display);font-size:var(--t-m);flex:1"></b><span class="chip"></span></div><div class="hint" style="margin-top:6px"></div><div style="margin-top:6px;font-size:var(--t-s)"></div></div>');
       c.querySelector('b').textContent = i.name; const ch = c.querySelector('.chip');
-      if (i.id === 'claude') { ch.className = 'chip ' + (okNow ? 'ok' : 'warn'); ch.textContent = okNow ? 'Operativa' : 'Pendiente de configuración'; }
+      if (i.id === 'claude') { ch.className = 'chip ' + (okNow ? 'ok' : 'warn'); ch.textContent = okNow ? 'Configurada' : 'Pendiente de configuración'; }
       else if (LC_SERVER && i.id === 'openai') { ch.className = 'chip ' + (okNow ? 'ok' : 'warn'); ch.textContent = okNow ? 'Operativa' : 'Implementada, pendiente de configuración'; }
-      else if (LC_SERVER && i.id === 'web') { const okW = AI.provider === 'anthropic'; ch.className = 'chip ' + (okW ? 'ok' : 'warn'); ch.textContent = okW ? 'Operativa' : 'Solo con Anthropic API'; }
+      else if (LC_SERVER && i.id === 'web') { const okW = AI.provider === 'anthropic'; ch.className = 'chip ' + (okW ? 'ok' : 'warn'); ch.textContent = okW ? 'Configurada' : 'Solo con Anthropic API'; }
       else if (LC_SERVER && i.id === 'shopify') { const n = Store.all('projects').filter(p => p.integrations && p.integrations.shopify).length; ch.className = 'chip ' + (n ? 'ok' : 'warn'); ch.textContent = n ? 'Conectada en ' + n + ' proyecto' + (n > 1 ? 's' : '') : 'Implementada, se conecta por proyecto'; }
       else { ch.className = 'chip plain'; ch.textContent = 'Pendiente de desarrollo'; }
       c.querySelector('.hint').textContent = LC_SERVER && i.id === 'openai' ? (okNow ? 'Los agentes usan OpenAI API desde el servidor con la clave guardada en Vercel.' : 'El servidor ya sabe usar OpenAI API: basta con crear la variable OPENAI_API_KEY en Vercel (y AI_PROVIDER=openai si también tienes clave de Anthropic).') : i.how;
@@ -353,7 +359,7 @@ const Panels = (() => {
     if (LC_SERVER) {
       const okA = AI.provider === 'anthropic';
       const c = h('<div class="card"><div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"><b style="font-family:var(--f-display);font-size:var(--t-m);flex:1">Anthropic API (Claude)</b><span class="chip"></span></div><div class="hint" style="margin-top:6px"></div></div>');
-      const ch = c.querySelector('.chip'); ch.className = 'chip ' + (okA ? 'ok' : 'warn'); ch.textContent = okA ? 'Operativa' : 'Implementada, pendiente de configuración';
+      const ch = c.querySelector('.chip'); ch.className = 'chip ' + (okA ? 'ok' : 'warn'); ch.textContent = okA ? 'Configurada' : 'Implementada, pendiente de configuración';
       c.querySelector('.hint').textContent = okA ? 'Los agentes usan Claude por API desde el servidor, con la clave guardada en Vercel. Se factura en console.anthropic.com, aparte de tu plan de Claude.' : 'Crea la variable ANTHROPIC_API_KEY en Vercel para usar Claude por API. Es una facturación aparte de tu suscripción a Claude.';
       g.prepend(c);
     }
@@ -361,7 +367,7 @@ const Panels = (() => {
   }
 
   /* ================= ESTADO DEL SISTEMA ================= */
-  const CLS = { op: ['ok', 'Implementada y operativa'], cfg: ['warn', 'Implementada, pendiente de configuración'], proto: ['info', 'Prototipo'], dev: ['plain', 'Pendiente de desarrollo'], lim: ['warn', 'Operativa con limitación'] };
+  const CLS = { op: ['ok', 'Implementada y operativa'], ready: ['info', 'Configurada · sin prueba en esta comprobación'], cfg: ['warn', 'Implementada, pendiente de configuración'], proto: ['info', 'Prototipo'], dev: ['plain', 'Pendiente de desarrollo'], lim: ['warn', 'Operativa con limitación'] };
   function status() {
     const p = shell('Estado del sistema', 'Qué funciona de verdad, qué está limitado y qué falta, con la comprobación hecha en este momento.', true);
     tabsInto(p, [['feat', 'Funcionalidades'], ['arch', 'Arquitectura'], ['next', 'Siguiente fase']], 'status', (t, b) => {
@@ -420,15 +426,15 @@ const Panels = (() => {
       ['Estados visibles de cada agente', 'op', 'Según tareas reales del servidor y de tus chats. Los descansos son ambientales y nunca simulan trabajo.'],
       ['Acceso privado con contraseña', hs && hs.password ? 'op' : 'cfg', 'Sesión con cookie protegida; la contraseña vive solo en Vercel (ADMIN_PASSWORD).'],
       ['Base de datos en el servidor', hs && hs.db ? 'op' : 'cfg', hs && hs.db ? 'Postgres: proyectos, chats, tareas, memoria y entregables, compartidos entre tus dispositivos.' : ((hs && hs.dbError) || 'Falta conectar la base de datos.')],
-      ['Chat real con los agentes', ai ? 'op' : 'cfg', ai ? 'Responden con ' + prov + ' desde el servidor. Markdown, código, adjuntos de texto e imágenes, herramientas.' : 'Falta la clave de IA en Vercel (ANTHROPIC_API_KEY u OPENAI_API_KEY).'],
+      ['Chat real con los agentes', ai ? 'ready' : 'cfg', ai ? 'Proveedor configurado: ' + prov + '. Esta comprobación no envía una petición de pago ni valida la clave o el modelo. Los errores de una llamada aparecen en el chat y las tareas.' : 'Falta la clave de IA en Vercel (ANTHROPIC_API_KEY u OPENAI_API_KEY).'],
       ['Orquestador en segundo plano', ai && hs && hs.db ? 'op' : 'cfg', 'Lo ejecuta el servidor por tandas de hasta 5 minutos que se encadenan mientras queda trabajo: puedes cerrar La Cueva.' + (w ? ' Última tanda: ' + fmtDT(Date.parse(w.endedAt || w.startedAt)) + ' · ' + (w.reason || '') + '.' : ' Aún no ha trabajado ninguna tanda.')],
       ['Tareas programadas', hs && hs.cronSecret ? 'lim' : 'cfg', hs && hs.cronSecret ? 'Las ejecuta el servidor con La Cueva cerrada. Limitación del plan Hobby: se revisan una vez por hora (±1 h).' : 'Falta la variable CRON_SECRET en Vercel para que el cron horario pueda despertar al servidor.'],
-      ['Aprobaciones de acciones sensibles', 'op', 'Aprobar no ejecuta nada externo: todavía no hay integraciones de terceros.'],
+      ['Aprobaciones de acciones sensibles', 'op', 'En Shopify, aprobar ejecuta el cambio mostrado en la tienda del proyecto. El servidor reserva la ejecución para impedir duplicados. Las aprobaciones sin integración solo registran tu decisión.'],
       ['Memoria normativa y operativa', 'op', 'Reglas supervisadas por ámbitos y memoria aislada por proyecto. Las reglas no pueden tocar permisos.'],
       ['Recuperación de contexto', 'lim', 'Por palabras clave. Búsqueda semántica: pendiente.'],
-      ['Consumo y costes', 'op', 'Llamadas y tokens reales que devuelve el proveedor. Coste en euros si configuras el precio en Ajustes.'],
+      ['Consumo y costes', 'op', 'El servidor limita y registra cada petición interna, sus tokens recibidos y las búsquedas. Un fallo puede no devolver todos los tokens facturados; el historial anterior conserva sus estimaciones. Tarifas de tokens manuales en Ajustes.'],
       ['Adjuntos', 'lim', 'Imágenes, texto, PDF y Word. Los PDF de imágenes los transcribe la IA una vez; el texto queda guardado (en un chat de proyecto, también en sus documentos). Las imágenes sueltas no se guardan en el servidor.'],
-      ['Búsqueda y lectura web', AI.provider === 'anthropic' ? 'op' : 'cfg', AI.provider === 'anthropic' ? 'Los agentes con permiso buscan en internet y leen páginas o PDF públicos, y citan las fuentes. 10 $ por cada 1.000 búsquedas, más tokens.' : 'Disponible solo con Anthropic API como proveedor.'],
+      ['Búsqueda y lectura web', AI.provider === 'anthropic' ? 'ready' : 'cfg', AI.provider === 'anthropic' ? 'Los agentes con permiso buscan en internet y leen páginas o PDF públicos, y citan las fuentes. 10 $ por cada 1.000 búsquedas, más tokens.' : 'Disponible solo con Anthropic API como proveedor.'],
       ['Shopify', Store.all('projects').some(p => p.integrations && p.integrations.shopify) ? 'op' : 'cfg', 'Se conecta por proyecto (Proyectos → Integraciones). Lectura de tienda, productos y pedidos; los cambios se ejecutan solo al aprobarlos.'],
       ['PDF: páginas como imágenes', 'op', 'Al adjuntar un PDF se guardan hasta 20 páginas como imagen; los agentes pueden verlas cuando el texto no basta.'],
       ['Otras integraciones (Gmail, Drive, Meta, Google Ads…)', 'dev', 'Se añadirán con el mismo modelo: credenciales cifradas por proyecto y aprobación para lo sensible.'],
@@ -459,7 +465,7 @@ const Panels = (() => {
     const f = h('<form class="form"></form>');
     f.innerHTML = '<div class="sec-h" style="margin-top:0">Ejecución y límites</div>' +
       '<label class="chk"><input type="checkbox" name="planApproval"> <span><b>Los planes de Daniel esperan mi visto bueno antes de empezar</b><br><span class="hint">Recomendado: cada tarea ' + (LC_SERVER ? 'se factura en tu cuenta del proveedor de IA' : 'consume tu uso de Claude') + '.</span></span></label>' +
-      '<div class="f2"><label class="f">Tareas a la vez<select name="concurrency"><option>1</option><option>2</option><option>3</option></select></label><label class="f">Llamadas de IA al día (tope)<input name="dailyCalls" type="number" min="10" max="2000"></label><label class="f">Máximo de tareas por plan<input name="maxTasksPlan" type="number" min="1" max="12"></label><label class="f">Máximo de llamadas por plan<input name="maxCallsPlan" type="number" min="5" max="200"></label><label class="f">Profundidad de delegación<select name="maxDepth"><option value="1">1 · sin colaboraciones encadenadas</option><option value="2">2 · una colaboración por nivel</option></select></label></div>' +
+      '<div class="f2"><label class="f">Tareas a la vez<select name="concurrency"><option>1</option><option>2</option><option>3</option></select></label><label class="f">Peticiones al proveedor por día (tope)<input name="dailyCalls" type="number" min="10" max="2000"></label><label class="f">Máximo de tareas por plan<input name="maxTasksPlan" type="number" min="1" max="12"></label><label class="f">Máximo de peticiones por plan<input name="maxCallsPlan" type="number" min="5" max="200"></label><label class="f">Profundidad de delegación<select name="maxDepth"><option value="1">1 · sin colaboraciones encadenadas</option><option value="2">2 · una colaboración por nivel</option></select></label></div>' +
       '<div class="sec-h">Oficina</div><label class="chk"><input type="checkbox" name="showNames"> Mostrar nombres sobre los personajes</label><label class="chk"><input type="checkbox" name="ambient"> Vida ambiental: los agentes disponibles hacen pausas para el café o el sofá (nunca simulan trabajar)</label>' +
       '<div class="sec-h">Costes (para una API de pago futura)</div><div class="f2"><label class="f">€ por millón de tokens de entrada<input name="priceIn" inputmode="decimal" placeholder="vacío = sin coste"></label><label class="f">€ por millón de tokens de salida<input name="priceOut" inputmode="decimal" placeholder="vacío = sin coste"></label></div>';
     f.planApproval.checked = c.planApproval; f.concurrency.value = String(c.concurrency); f.dailyCalls.value = c.dailyCalls; f.maxTasksPlan.value = c.maxTasksPlan; f.maxCallsPlan.value = c.maxCallsPlan; f.maxDepth.value = String(c.maxDepth); f.showNames.checked = c.showNames; f.ambient.checked = c.ambient; f.priceIn.value = c.priceIn; f.priceOut.value = c.priceOut;

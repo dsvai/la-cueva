@@ -249,10 +249,11 @@ label.f textarea{min-height:90px;resize:vertical;line-height:1.45}
   :root{--hdr:100px}
   #top{flex-wrap:wrap;align-content:center;row-gap:6px;padding-block:6px}
   .brand img{height:30px}
-  nav.main{order:3;flex-basis:100%;margin-left:0;justify-content:space-between}
+  nav.main{order:3;flex-basis:100%;margin-left:0;justify-content:space-between;gap:0}
   .sysline{margin-left:auto}
   .tbl thead{display:none}.tbl tr{display:block;border-bottom:1px solid var(--line);padding:8px 0}.tbl td{display:block;border:0;padding:2px 0}.tbl td.num{text-align:left}
-  .nb span.lb{display:none}.nb{padding:8px 9px}
+  .nb span.lb{display:none}.nb{padding:8px;min-width:44px;min-height:44px;flex:0 0 44px;justify-content:center}
+  .nb .badge{position:absolute;top:0;right:0;min-width:16px;height:16px;padding:0 3px;font-size:10px}
   .wordmark{font-size:16px}.wordmark small{display:none}
   .sysline .pill span{display:none}
   #chat,#chat.wide{width:100vw}

@@ -77,6 +77,7 @@ const UI = (() => {
 
   function header() {
     $('#logo').src = LOGO_SRC;
+    $$('.nb').forEach(b => { const label = b.querySelector('.lb'); if (label) { b.setAttribute('aria-label', label.textContent); b.title = label.textContent; } });
     $$('.nb[data-panel], .pill[data-panel]').forEach(b => b.addEventListener('click', () => Panels.open(b.dataset.panel)));
     $('.nb[data-open=dir]').addEventListener('click', () => toggle('dir'));
     $$('[data-close]').forEach(b => b.addEventListener('click', () => close(b.dataset.close)));
@@ -167,9 +168,9 @@ const UI = (() => {
   }
   function sysPills() {
     const ai = $('#p-ai'), dbp = $('#p-db');
-    ai.className = 'pill' + (AI.status === 'ok' ? '' : ' bad'); ai.querySelector('span').textContent = AI.status === 'ok' ? 'IA activa' : AI.status === 'checking' ? 'IA…' : 'IA no disponible';
+    ai.className = 'pill' + (AI.status === 'ok' ? '' : ' bad'); ai.querySelector('span').textContent = AI.status === 'ok' ? (LC_SERVER ? 'IA configurada' : 'IA activa') : AI.status === 'checking' ? 'IA…' : 'IA no disponible';
     const m = Store.mode; dbp.className = 'pill' + (m === 'db' ? '' : m === 'local' ? ' warn' : ' bad'); dbp.querySelector('span').textContent = m === 'db' ? 'Datos guardados' : m === 'local' ? 'Solo este navegador' : 'Sin guardar';
-    ai.title = AI.status === 'ok' ? (LC_SERVER ? 'Los agentes responden con ' + ({ anthropic: 'Anthropic API', openai: 'OpenAI API', mock: 'simulador de pruebas' }[AI.provider] || 'la API configurada') + ' desde el servidor' : 'Los agentes responden con Claude usando tu sesión') : (LC_SERVER ? 'Falta la clave de IA en Vercel' : 'Abre La Cueva dentro de Claude con tu sesión iniciada');
+    ai.title = AI.status === 'ok' ? (LC_SERVER ? 'Proveedor de IA configurado: ' + ({ anthropic: 'Anthropic API', openai: 'OpenAI API', mock: 'simulador de pruebas' }[AI.provider] || 'la API configurada') + '. La clave y el modelo no se prueban al abrir esta vista.' : 'Los agentes responden con Claude usando tu sesión') : (LC_SERVER ? 'Falta la clave de IA en Vercel' : 'Abre La Cueva dentro de Claude con tu sesión iniciada');
     dbp.title = m === 'db' ? (LC_SERVER ? 'Proyectos, chats y tareas se guardan en la base de datos del servidor (Postgres)' : 'Proyectos, chats y tareas se guardan en la base de datos de La Cueva') : m === 'local' ? 'Sin base de datos: los datos solo se guardan en este navegador' : 'Sin almacenamiento: los datos se pierden al cerrar';
     if (LC_SERVER && m === 'db') dbp.querySelector('span').textContent = 'Datos en el servidor';
   }
