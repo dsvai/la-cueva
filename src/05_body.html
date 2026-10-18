@@ -1,0 +1,67 @@
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs>
+    <symbol id="i-dir" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM22 21v-2a4 4 0 0 0-3-3.9M16 3.1a4 4 0 0 1 0 7.8"/></symbol>
+    <symbol id="i-proj" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></symbol>
+    <symbol id="i-ctl" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></symbol>
+    <symbol id="i-ok" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20z"/></symbol>
+    <symbol id="i-mem" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20V3H6.5A2.5 2.5 0 0 0 4 5.5zM4 19.5A2.5 2.5 0 0 0 6.5 22H20v-5"/></symbol>
+    <symbol id="i-int" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" d="M9 7V3M15 7V3M7 7h10v4a5 5 0 0 1-10 0zM12 16v5"/></symbol>
+    <symbol id="i-info" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" d="M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20zM12 16v-5M12 8h.01"/></symbol>
+    <symbol id="i-set" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" d="M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3M1 14h6M9 8h6M17 16h6"/></symbol>
+    <symbol id="i-plus" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" d="M12 5v14M5 12h14"/></symbol>
+    <symbol id="i-minus" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" d="M5 12h14"/></symbol>
+    <symbol id="i-map" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" d="M3 6l6-3 6 3 6-3v15l-6 3-6-3-6 3zM9 3v15M15 6v15"/></symbol>
+    <symbol id="i-me" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" d="M12 2v4M12 18v4M2 12h4M18 12h4M12 16a4 4 0 1 0 0-8 4 4 0 0 0 0 8z"/></symbol>
+    <symbol id="i-clip" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" d="M21.4 11.1l-9.2 9.2a6 6 0 0 1-8.5-8.5l9.2-9.2a4 4 0 0 1 5.7 5.7l-9.2 9.2a2 2 0 0 1-2.8-2.8l8.5-8.5"/></symbol>
+    <symbol id="i-send" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" d="M22 2L11 13M22 2l-7 20-4-9-9-4z"/></symbol>
+    <symbol id="i-exp" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"/></symbol>
+    <symbol id="i-stop" viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" rx="2" fill="currentColor"/></symbol>
+    <symbol id="i-dl" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" d="M12 3v12M7 10l5 5 5-5M4 21h16"/></symbol>
+  </defs>
+</svg>
+
+<header id="top">
+  <div class="brand" id="brand" title="La Cueva by Daniel"><img id="logo" alt="La Cueva by Daniel"></div>
+  <nav class="main" aria-label="Secciones">
+    <button class="nb" data-open="dir" aria-pressed="false"><svg><use href="#i-dir"/></svg><span class="lb">Directorio</span></button>
+    <button class="nb" data-panel="projects" aria-pressed="false"><svg><use href="#i-proj"/></svg><span class="lb">Proyectos</span></button>
+    <button class="nb" data-panel="control" aria-pressed="false"><svg><use href="#i-ctl"/></svg><span class="lb">Dirección</span><span class="badge" id="b-attn"></span></button>
+    <button class="nb" data-panel="approvals" aria-pressed="false"><svg><use href="#i-ok"/></svg><span class="lb">Aprobaciones</span><span class="badge" id="b-appr"></span></button>
+    <button class="nb" data-panel="memory" aria-pressed="false"><svg><use href="#i-mem"/></svg><span class="lb">Memoria</span><span class="badge" id="b-mem"></span></button>
+    <button class="nb" data-panel="integrations" aria-pressed="false"><svg><use href="#i-int"/></svg><span class="lb">Integraciones</span></button>
+    <button class="nb" data-panel="status" aria-pressed="false"><svg><use href="#i-info"/></svg><span class="lb">Estado</span></button>
+    <button class="nb" data-panel="settings" aria-pressed="false"><svg><use href="#i-set"/></svg><span class="lb">Ajustes</span></button>
+  </nav>
+  <div class="sysline">
+    <button class="pill" id="p-ai" data-panel="status"><i></i><span>IA</span></button>
+    <button class="pill" id="p-db" data-panel="status"><i></i><span>Datos</span></button>
+  </div>
+</header>
+
+<main id="stage">
+  <canvas id="world" aria-label="Oficina de La Cueva. Usa WASD o las flechas para moverte; haz clic en un trabajador para hablar con él." tabindex="0"></canvas>
+  <div class="hud">
+    <button class="hb" id="z-in" aria-label="Acercar"><svg><use href="#i-plus"/></svg></button>
+    <button class="hb" id="z-out" aria-label="Alejar"><svg><use href="#i-minus"/></svg></button>
+    <button class="hb" id="z-all" aria-label="Ver toda la oficina"><svg><use href="#i-map"/></svg></button>
+    <button class="hb" id="z-me" aria-label="Centrar en mi personaje"><svg><use href="#i-me"/></svg></button>
+  </div>
+  <div id="tip" hidden></div>
+  <div id="sel" hidden></div>
+  <div id="pad" aria-hidden="true">
+    <button style="left:40px;top:0" data-d="0,-1">▲</button><button style="left:0;top:40px" data-d="-1,0">◀</button>
+    <button style="left:80px;top:40px" data-d="1,0">▶</button><button style="left:40px;top:80px" data-d="0,1">▼</button>
+  </div>
+</main>
+
+<aside id="dir" class="drawer" aria-label="Directorio">
+  <div class="dhead"><h2>Directorio</h2><button class="btn sm sec" id="new-agent"><svg><use href="#i-plus"/></svg>Nuevo agente</button><button class="x" data-close="dir" aria-label="Cerrar">×</button></div>
+  <div class="dbody"><input class="search" id="dir-q" type="search" placeholder="Buscar por nombre, cargo o especialidad" aria-label="Buscar en el directorio"><div id="dir-list"></div></div>
+</aside>
+
+<aside id="chat" class="drawer" aria-label="Chat"></aside>
+
+<button id="fab" aria-label="Hablar con Daniel, director general"><canvas id="fab-av" width="36" height="36"></canvas><span class="lbl">Daniel<small>Director general</small></span></button>
+
+<div id="modal" role="dialog" aria-modal="true"></div>
+<div id="toasts" aria-live="polite"></div>

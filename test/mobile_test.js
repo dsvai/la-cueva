@@ -1,0 +1,13 @@
+const fs=require('fs');const { chromium } = require('playwright-core');
+(async()=>{const b=await chromium.launch({executablePath:'/opt/pw-browsers/chromium',args:['--no-sandbox']});
+const app=fs.readFileSync('../dist/la-cueva.html','utf8'), mock=fs.readFileSync('mock.js','utf8');
+fs.writeFileSync('app.html','<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><style>:root{color-scheme:light}body{margin:0;font:14px system-ui}img{max-width:100%}[hidden]{display:none!important}</style><script>'+mock+'</script></head><body>'+app+'</body></html>');
+const p=await b.newPage({viewport:{width:390,height:844},deviceScaleFactor:2,hasTouch:true,isMobile:true});
+p.on('pageerror',e=>console.log('PAGEERR',e.message));
+await p.goto('file://'+process.cwd()+'/app.html'); await p.waitForTimeout(1500);
+await p.screenshot({path:'m1.png'});
+await p.click('#fab'); await p.waitForTimeout(400); await p.screenshot({path:'m2.png'});
+const ov = await p.evaluate(()=>document.documentElement.scrollWidth>innerWidth);
+console.log('overflow', ov);
+await p.evaluate(()=>{UI.close('chat'); Panels.open('status');}); await p.waitForTimeout(300); await p.screenshot({path:'m3.png'});
+await b.close();})();
