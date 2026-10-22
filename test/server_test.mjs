@@ -11,6 +11,7 @@ await usePglite();
 const { runOps, applyOps } = await import('../server/docs.js');
 const { runWorker, loadRuntime } = await import('../server/runtime.js');
 const { step } = await import('../server/llm.js');
+const { usageDay } = await import('../server/usage.js');
 const R = require('../shared/remote.cjs');
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 let n = 0; const ok = (m) => { n++; console.log('✓', m); };
@@ -124,7 +125,8 @@ const T = ops => runOps(ops, { allowLease: true });
   const msgs = await B.Chat.messages(cv.id);
   assert.ok(msgs.some(m => m.meta && m.meta.kind === 'consolidacion'), 'informe de Daniel en la conversación');
   assert.ok(msgs.filter(m => m.role === 'user').length === 1, 'el historial del chat se conserva');
-  const u = (await T([{ op: 'get', c: 'usage', id: Object.keys(B.Store.all('usage').reduce((o, x) => (o[x.id] = 1, o), {}))[0] }]))[0].data;
+  // La primera fila puede ser la de otro día, creada por la prueba de concurrencia.
+  const u = (await T([{ op: 'get', c: 'usage', id: usageDay('Europe/Madrid') }]))[0].data;
   assert.ok(u.calls >= 6, 'consumo sumado de navegador y worker: ' + u.calls);
   ok('el navegador ve el resultado sincronizado y el consumo cuadra (' + u.calls + ' llamadas)');
 
