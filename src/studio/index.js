@@ -125,9 +125,10 @@ function create(canvas, world, callbacks) {
     portraitScene.background = new T.Color(look.bg || '#d8cbb5');
     const reduce = !!window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
     poseCharacter(previewModel, { pose: full && !reduce ? 'walk' : 'stand', dir: 'S', t: time }, reduce);
-    const extent = full ? 1.08 : .43;
+    const cowboy = look.hat === 'cowboy';
+    const extent = full ? (cowboy ? 1.15 : 1.08) : (cowboy ? .52 : .43);
     Object.assign(portraitCam, { left: -extent, right: extent, top: extent, bottom: -extent });
-    const cy = full ? .9 : 1.48;
+    const cy = full ? (cowboy ? 1 : .9) : (cowboy ? 1.62 : 1.48);
     portraitCam.position.set(full ? 2.3 : 1.3, cy + .25, 4); portraitCam.lookAt(0, cy, 0); portraitCam.updateProjectionMatrix();
     const previous = renderer.getRenderTarget(), shadowEnabled = renderer.shadowMap.enabled;
     renderer.shadowMap.enabled = false;

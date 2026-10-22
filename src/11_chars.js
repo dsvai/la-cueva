@@ -15,10 +15,27 @@ function cpal(P) {
     tp: P.top, tps: shade(P.top, -.2), tph: shade(P.top, .13),
     pn: P.pants, pns: shade(P.pants, -.22),
     sh: P.shoes, shs: shade(P.shoes, -.28),
-    bd: P.badge || '#efe5d5', hat: P.hatC || '#344c3d'
+    bd: P.badge || '#efe5d5', hat: P.hatC || (P.hat === 'cowboy' ? '#6b4a2f' : '#344c3d')
   };
 }
 const EYE = '#2a1b14';
+
+function cowboyHat2D(g, c, dy, view) {
+  const y = 4 + dy, side = view === 'E', cx = side ? 25 : 24;
+  if (side) g.r(16, y + 4, 7, 6, c.hr);
+  else { g.r(16, y + 4, 2, 6, c.hr); g.r(31, y + 4, 2, 6, c.hr); }
+  if (view === 'N') g.r(18, y + 4, 12, 7, c.hr);
+  g.ell(cx, y + 3, side ? 15 : 17, 2, shade(c.hat, -.2));
+  if (!side) {
+    g.rr(7, y - 1, 6, 5, 2, c.hat); g.rr(35, y - 1, 6, 5, 2, c.hat);
+    g.r(8, y - 1, 4, 1, shade(c.hat, .2)); g.r(36, y - 1, 4, 1, shade(c.hat, .2));
+  }
+  g.rr(cx - 8, y - 3, 16, 7, 2, c.hat);
+  g.r(cx - 5, y - 3, 3, 1, shade(c.hat, .2)); g.r(cx + 2, y - 3, 3, 1, shade(c.hat, .2));
+  g.r(cx - 2, y - 3, 4, 1, shade(c.hat, -.25));
+  g.r(cx - 8, y + 1, 16, 2, '#3d3028');
+  if (view !== 'N') g.r(cx + (side ? 4 : 1), y + 1, 2, 2, '#b29a7d');
+}
 
 /* ---------- FRENTE ---------- */
 function legsFront(g, c, lL, lR) {
@@ -79,6 +96,7 @@ function hairFrontBack(g, c, P, dy) {
 function hairFront(g, c, P, dy) {
   const y = 4 + dy, hs = P.hs;
   const cap = (h) => { g.rr(15, y - 2, 18, h, 3, c.hr); g.r(18, y - 2, 7, 1, c.hrh); g.r(15, y + h - 3, 18, 1, c.hrs); };
+  if (P.hat === 'cowboy') { cowboyHat2D(g, c, dy, 'S'); return; }
   if (P.hat === 'cap') {
     g.rr(15, y - 3, 18, 8, 3, c.hat); g.r(18, y - 3, 7, 1, shade(c.hat, .2)); g.r(14, y + 4, 20, 3, shade(c.hat, -.18)); g.r(14, y + 6, 20, 1, shade(c.hat, -.34));
     g.r(15, y + 7, 3, 3, c.hr); g.r(30, y + 7, 3, 3, c.hr); return;
@@ -117,6 +135,7 @@ function headBack(g, c, P, dy) {
 }
 function hairBack(g, c, P, dy) {
   const y = 4 + dy, hs = P.hs;
+  if (P.hat === 'cowboy') { cowboyHat2D(g, c, dy, 'N'); return; }
   if (P.hat === 'cap') { g.rr(15, y - 3, 18, 14, 3, c.hat); g.r(18, y - 3, 7, 1, shade(c.hat, .2)); g.r(15, y + 8, 18, 1, shade(c.hat, -.18)); g.r(20, y + 8, 8, 2, shade(c.hat, -.3)); g.r(15, y + 9, 3, 3, c.hr); g.r(30, y + 9, 3, 3, c.hr); g.r(18, y + 9, 12, 2, c.hr); return; }
   if (P.hat === 'beanie') { g.rr(15, y - 4, 18, 15, 4, c.hat); g.r(15, y + 6, 18, 3, shade(c.hat, .14)); g.r(18, y - 4, 7, 1, shade(c.hat, .2)); g.r(15, y + 10, 18, 2, c.hr); return; }
   switch (hs) {
@@ -170,6 +189,7 @@ function drawSideHead(g, c, P, dy) {
   if (P.acc === 'glasses') { const f = '#2a1b14'; g.r(25, y + 5, 6, 1, f); g.r(25, y + 9, 6, 1, f); g.r(25, y + 5, 1, 5, f); g.r(30, y + 5, 1, 5, f); g.r(22, y + 6, 3, 1, f); g.r(26, y + 6, 4, 3, 'rgba(190,225,240,.32)'); }
   if (P.acc === 'shades') { g.r(25, y + 5, 6, 4, '#16100c'); g.r(22, y + 6, 3, 1, '#16100c'); g.r(26, y + 6, 2, 1, '#5a5048'); }
   const hs = P.hs;
+  if (P.hat === 'cowboy') { cowboyHat2D(g, c, dy, 'E'); return; }
   if (P.hat === 'cap') { g.rr(16, y - 3, 16, 8, 3, c.hat); g.r(19, y - 3, 6, 1, shade(c.hat, .2)); g.r(28, y + 4, 8, 3, shade(c.hat, -.18)); g.r(28, y + 6, 8, 1, shade(c.hat, -.34)); g.r(16, y + 5, 7, 6, c.hr); return; }
   if (P.hat === 'beanie') { g.rr(15, y - 4, 17, 11, 4, c.hat); g.r(15, y + 3, 17, 3, shade(c.hat, .14)); g.r(18, y - 4, 7, 1, shade(c.hat, .2)); g.r(16, y + 6, 7, 5, c.hr); return; }
   switch (hs) {
@@ -266,6 +286,7 @@ function avatarCanvas(P, px) {
   const sh = buildSheet(P); const s = px || 40;
   const [c, x] = cvs(s, s); x.imageSmoothingEnabled = false;
   x.fillStyle = P.bg || '#4a5d4f'; x.fillRect(0, 0, s, s);
-  x.drawImage(sh.canvas, 10, 2 + 0 * FR, 28, 26, 0, 0, s, s * 26 / 28);
+  if (P.hat === 'cowboy') x.drawImage(sh.canvas, 5, 0, 38, 32, 0, 0, s, s * 32 / 38);
+  else x.drawImage(sh.canvas, 10, 2, 28, 26, 0, 0, s, s * 26 / 28);
   return c;
 }

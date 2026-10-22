@@ -550,7 +550,7 @@ const Panels = (() => {
         color('Color de la prenda', 'top'); color('Pantalón', 'pants'); color('Calzado', 'shoes');
         sel('Complemento', 'acc', [['', 'Ninguno'], ['glasses', 'Gafas'], ['shades', 'Gafas de sol'], ['phones', 'Auriculares']]);
         sel('Vello facial', 'face', [['', 'Ninguno'], ['beard', 'Barba'], ['stache', 'Bigote'], ['stubble', 'Barba de días']]);
-        sel('Gorro', 'hat', [['', 'Ninguno'], ['cap', 'Gorra'], ['beanie', 'Gorro de lana']]);
+        sel('Gorro', 'hat', [['', 'Ninguno'], ['cap', 'Gorra'], ['beanie', 'Gorro de lana'], ['cowboy', 'Sombrero cowboy']]);
         color('Color del gorro', 'hatC');
         b.append(w, bar);
       }

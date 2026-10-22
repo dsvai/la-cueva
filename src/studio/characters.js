@@ -1,6 +1,32 @@
 import * as T from 'three';
 import { box, sphere, cylinder, group, material } from './primitives.js';
 
+let cowboyBrim, cowboyCrown;
+function cowboyHat(head, color) {
+  // Reuse the shaped felt meshes across office characters and portrait previews.
+  if (!cowboyBrim) {
+    cowboyBrim = new T.SphereGeometry(1, 32, 16);
+    const brim = cowboyBrim.attributes.position;
+    for (let i = 0; i < brim.count; i++) {
+      const x = brim.getX(i), y = brim.getY(i), z = brim.getZ(i);
+      brim.setXYZ(i, x * .37, y * .022 + .095 * x ** 4, z * .28);
+    }
+    cowboyBrim.computeVertexNormals();
+    cowboyCrown = new T.CylinderGeometry(.135, .17, .23, 32, 1);
+    const crown = cowboyCrown.attributes.position;
+    for (let i = 0; i < crown.count; i++) {
+      const x = crown.getX(i), y = crown.getY(i), z = crown.getZ(i);
+      crown.setXYZ(i, x, y + (y > 0 ? .035 * (x / .135) ** 2 : 0), z * .9);
+    }
+    cowboyCrown.computeVertexNormals();
+  }
+  const hat = group(head); hat.name = 'cowboy-hat';
+  const brim = new T.Mesh(cowboyBrim, material(color)); brim.name = 'cowboy-brim'; brim.position.y = .13; hat.add(brim);
+  const crown = new T.Mesh(cowboyCrown, material(color)); crown.position.set(0, .275, -.015); hat.add(crown);
+  const band = cylinder(hat, 0, .183, -.015, .171, .035, '#3d3028'); band.scale.z = .9;
+  box(hat, .055, .183, .142, .04, .026, .014, '#b29a7d', .004);
+}
+
 // Parametric articulated adults: the existing avatar settings remain the source of truth.
 // Parts use shared geometry/material caches, so editing a person does not leak GPU assets.
 export function character(look = {}) {
@@ -51,7 +77,8 @@ export function character(look = {}) {
     for (const x of [-.18, .18]) box(head, x, .015, -.015, .055, .14, .1, c, .025);
     box(head, 0, .225, -.02, .36, .035, .06, c, .015);
   }
-  if (p.hat) {
+  if (p.hat === 'cowboy') cowboyHat(head, p.hatC || '#6b4a2f');
+  else if (p.hat) {
     const color = p.hatC || '#344c3d'; sphere(head, 0, .15, -.01, .165, .13, .157, color);
     if (p.hat === 'cap') box(head, 0, .14, .17, .29, .025, .19, color, .02);
     else box(head, 0, .11, 0, .325, .06, .3, color, .025);

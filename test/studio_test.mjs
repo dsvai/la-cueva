@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
-import { Vector3, Group } from 'three';
+import { Vector3, Group, Box3 } from 'three';
 import { box, sphere, material, mergeStatic } from '../src/studio/primitives.js';
 import { character, poseCharacter, disposeCharacter } from '../src/studio/characters.js';
 import { studioCamera, groundPoint, projectPoint, screenDirection, fitOffice } from '../src/studio/camera.js';
@@ -49,6 +49,28 @@ poseCharacter(adult, { pose: 'sit', dir: 'S', mode: 'seat', status: { state: 'wo
 assert.equal(adult.head.rotation.x, 0);
 const parent = new Group(); parent.add(adult.root); disposeCharacter(adult); assert.equal(parent.children.length, 0);
 console.log('✓ articulated avatars follow real states, reduced motion and removal');
+
+// The cowboy silhouette must fit above the face, curve up at the sides and share
+// GPU geometry when the same accessory is rendered in the office and portraits.
+const cowboy = character({ hat: 'cowboy', acc: 'glasses' });
+const hat = cowboy.head.getObjectByName('cowboy-hat'), brim = hat.getObjectByName('cowboy-brim');
+cowboy.root.updateMatrixWorld(true);
+const bounds = new Box3().setFromObject(hat);
+assert.ok(bounds.max.x - bounds.min.x > .7, 'cowboy brim must be wider than the head');
+assert.ok(bounds.min.y > 1.7 && bounds.max.y < 2.1, 'hat must clear the eyes and fit portrait framing');
+const positions = brim.geometry.attributes.position;
+let edge = -Infinity, center = -Infinity;
+for (let i = 0; i < positions.count; i++) {
+  if (Math.abs(positions.getX(i)) > .35) edge = Math.max(edge, positions.getY(i));
+  if (Math.abs(positions.getX(i)) < .02) center = Math.max(center, positions.getY(i));
+}
+assert.ok(edge > center + .05, 'brim sides must turn upward');
+const portraitCowboy = character({ hat: 'cowboy', hatC: '#344c3d' });
+assert.equal(portraitCowboy.head.getObjectByName('cowboy-brim').geometry, brim.geometry);
+let sharedDisposed = false; brim.geometry.addEventListener('dispose', () => { sharedDisposed = true; });
+disposeCharacter(cowboy); assert.equal(sharedDisposed, false, 'removing an avatar must preserve shared hat geometry');
+disposeCharacter(portraitCowboy);
+console.log('✓ cowboy hat silhouette, face clearance and shared geometry lifecycle');
 
 // Exercise the View boundary without WebGL or a real backend. The legacy canvas must
 // remain usable when WebGL is unavailable, and screen-relative keys must drive 3D movement.
