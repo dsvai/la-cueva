@@ -98,6 +98,7 @@ const PLAYER_LOOK = { skin: SKINS[1], hair: HAIRS[0], hs: 'short', top: BR.beige
 /* ---------- herramientas internas (reales, ejecutadas por La Cueva) ---------- */
 const TOOLS = {
   consultar_documentos: { label: 'Consultar documentos del proyecto', who: 'all', perm: 'documentos' },
+  leer_documento:       { label: 'Leer documentos del proyecto por partes', who: 'all', perm: 'documentos', always: true },
   registrar_decision:   { label: 'Registrar decisión en la memoria del proyecto', who: 'all', perm: 'memoria_operativa' },
   proponer_regla_memoria: { label: 'Proponer regla permanente (requiere tu aprobación)', who: 'all', perm: 'proponer_memoria' },
   escalar_a_daniel:     { label: 'Escalar a Daniel', who: 'specialist', perm: 'escalar' },

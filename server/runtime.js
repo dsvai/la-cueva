@@ -25,7 +25,7 @@ function source() {
   const dir = path.join(process.cwd(), 'src');
   CODE = 'const toast = () => {}; const View = { setAgents() {} };\n' +
     FILES.map(f => fs.readFileSync(path.join(dir, f), 'utf8')).join('\n') +
-    '\n;({ Store, Orch, Sched, Leader, Activity, Config, Roster, Chat, Bus, AI })';
+    '\n;({ Store, Orch, Sched, Leader, Activity, Config, Roster, Chat, Bus, AI, Memory, Tools })';
   return CODE;
 }
 

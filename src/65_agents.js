@@ -68,16 +68,68 @@ const Memory = (() => {
   }
   function notesFor(projectId, n) { return Store.all('notes').filter(x => (x.projectId || null) === (projectId || null)).sort((a, b) => b.ts - a.ts).slice(0, n || 12); }
   /* recuperación por palabras clave (sin embeddings: pendiente de backend) */
-  function words(s) { return (s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').split(/[^a-z0-9ñ]+/).filter(w => w.length > 3); }
+  const STOP = new Set('los las con del que una por para como sus mas pero este esta son the and for with from that this los les des par sur une est'.split(' '));
+  function words(s) { return (s || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').split(/[^a-z0-9ñ]+/).filter(w => w.length > 2 && !STOP.has(w)); }
+  /* trocea un documento en fragmentos de ~1.200 caracteres. En tablas (hojas de cálculo convertidas a texto)
+     cada fragmento lleva la fila de cabecera, para que una fila suelta siga teniendo sentido */
+  const PART = 12000;
+  function chunks(text) {
+    const lines = String(text || '').split('\n');
+    const nonEmpty = lines.filter(l => l.trim());
+    const SEP = /\t|\s\|\s|;.*;|,.*,.*,/;
+    const tabular = nonEmpty.length > 20 && nonEmpty.filter(l => SEP.test(l)).length > nonEmpty.length * 0.5;
+    const header = tabular ? (nonEmpty.find(l => SEP.test(l)) || '').slice(0, 400) : '';
+    const out = []; let cur = [], len = 0, start = 0, pos = 0;
+    const flush = () => { const body = cur.join('\n').trim(); if (body) out.push({ text: (header && start > 0 ? header + '\n' : '') + body, at: start }); cur = []; len = 0; };
+    for (const l0 of lines) {
+      const l = l0.length > 1200 ? l0.slice(0, 1200) : l0, blank = !l.trim();
+      if (cur.length && ((blank && !tabular && len > 400) || len + l.length > 1200)) flush();
+      if (!cur.length && blank) { pos += l0.length + 1; continue; }
+      if (!cur.length) start = pos;
+      cur.push(l); len += l.length + 1; pos += l0.length + 1;
+    }
+    flush();
+    return out;
+  }
+  function score(qs, qPhrase, text, docName) {
+    const ws = words(text); if (!ws.length) return 0;
+    const seen = new Set(); let hits = 0;
+    for (const w of ws) if (qs.has(w)) { hits++; seen.add(w); }
+    if (!seen.size) return 0;
+    let s = seen.size * 3 + Math.min(hits, 12) * 0.5;
+    if (qPhrase && text.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').includes(qPhrase)) s += 6;
+    for (const w of words(docName)) if (qs.has(w)) s += 1;
+    return s;
+  }
   async function search(projectId, query, n) {
-    const q = new Set(words(query)); const out = [];
+    const qs = new Set(words(query)); if (!qs.size) return [];
+    const qPhrase = String(query || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim();
+    const out = [];
     for (const d of Store.all('pdocs').filter(x => x.projectId === projectId)) {
       const t = await Store.load('ptext', d.id); const text = (t && t.text) || '';
-      const parts = text.split(/\n{2,}/);
-      parts.forEach((p, i) => { let s = 0; for (const w of words(p)) if (q.has(w)) s++; if (s) out.push({ s, src: d.name, text: p.slice(0, 900) }); });
+      const parts = Math.max(1, Math.ceil(text.length / PART));
+      for (const c of chunks(text)) { const s = score(qs, qPhrase.length > 5 ? qPhrase : '', c.text, d.name); if (s) out.push({ s, src: d.name + ' · parte ' + (Math.floor(c.at / PART) + 1) + ' de ' + parts, text: c.text }); }
     }
-    for (const d of Store.all('deliverables').filter(x => x.projectId === projectId)) { let s = 0; for (const w of words(d.title + ' ' + (d.summary || ''))) if (q.has(w)) s += 2; if (s) out.push({ s, src: 'Entregable: ' + d.title, text: d.summary || '' }); }
-    return out.sort((a, b) => b.s - a.s).slice(0, n || 5);
+    for (const d of Store.all('deliverables').filter(x => x.projectId === projectId)) { const s = score(qs, '', d.title + ' ' + (d.summary || ''), ''); if (s) out.push({ s: s + 1, src: 'Entregable: ' + d.title + ' [' + d.id + ']', text: d.summary || '' }); }
+    // como mucho 3 fragmentos del mismo documento, para no tapar a los demás
+    const per = {}, res = [];
+    for (const r of out.sort((a, b) => b.s - a.s)) { const k = r.src.split(' · parte')[0]; if ((per[k] = (per[k] || 0) + 1) > 3) continue; res.push(r); if (res.length >= (n || 6)) break; }
+    return res;
   }
-  return { rulesFor, propose, decide, note, notesFor, search, RISKY };
+  /* lectura por partes de un documento del proyecto (para revisarlo entero sin saturar el contexto) */
+  async function readPart(projectId, name, part) {
+    const docs = Store.all('pdocs').filter(x => x.projectId === projectId);
+    const key = String(name || '').toLowerCase().trim();
+    const d = docs.find(x => x.id === name || x.name.toLowerCase() === key) || docs.find(x => key && x.name.toLowerCase().includes(key));
+    if (!d) return { error: 'No hay ningún documento con ese nombre. Disponibles: ' + docs.map(x => x.name).join(' · ') };
+    const t = await Store.load('ptext', d.id); const text = (t && t.text) || '';
+    const parts = Math.max(1, Math.ceil(text.length / PART));
+    const k = Math.min(Math.max(parseInt(part, 10) || 1, 1), parts);
+    let a = (k - 1) * PART, b = Math.min(text.length, k * PART);
+    if (k > 1) { const nl = text.lastIndexOf('\n', a); if (nl > a - 400) a = nl + 1; }
+    if (b < text.length) { const nl = text.lastIndexOf('\n', b); if (nl > b - 400) b = nl; }
+    return { name: d.name, part: k, parts, text: text.slice(a, b) };
+  }
+  function partsOf(d) { return Math.max(1, Math.ceil((d.size || 0) / PART)); }
+  return { rulesFor, propose, decide, note, notesFor, search, readPart, partsOf, chunks, RISKY };
 })();

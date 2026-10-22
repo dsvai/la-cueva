@@ -407,9 +407,14 @@ const Tools = (() => {
   function build(agent, ctx) {
     const list = [], add = (name, description, schema, fn) => { if (allowed(agent, name)) list.push({ name, description, inputSchema: schema, execute: wrap(ctx, name, fn) }); };
     const pid = ctx.project ? ctx.project.id : null;
-    add('consultar_documentos', 'Busca en los documentos y entregables del proyecto actual por palabras clave y devuelve fragmentos relevantes. Solo funciona dentro de un proyecto.', S({ consulta: str('Palabras clave') }, ['consulta']), async i => {
+    add('consultar_documentos', 'Busca en los documentos y entregables del proyecto actual por palabras clave (nombres, ciudades, fechas, tipos de evento, marcas…) y devuelve los fragmentos más relevantes, indicando de qué documento y de qué parte salen. Para revisar un documento entero o ver el contexto de un fragmento, usa leer_documento.', S({ consulta: str('Palabras clave'), resultados: { type: 'integer', description: 'Cuántos fragmentos (1-10, por defecto 6)' } }, ['consulta']), async i => {
       if (!pid) return 'No hay proyecto en esta conversación, así que no hay documentos que consultar.';
-      const r = await Memory.search(pid, String(i.consulta || ''), 5); return r.length ? r.map(x => '[' + x.src + ']\n' + x.text).join('\n\n') : 'Sin resultados para esa consulta.';
+      const r = await Memory.search(pid, String(i.consulta || ''), Math.min(Math.max(parseInt(i.resultados, 10) || 6, 1), 10)); return r.length ? r.map(x => '[' + x.src + ']\n' + x.text).join('\n\n---\n\n') : 'Sin resultados para esa consulta. Prueba con otras palabras o revisa el documento con leer_documento.';
+    });
+    if (pid && Store.all('pdocs').some(d => d.projectId === pid)) add('leer_documento', 'Lee un documento del proyecto por partes (unos 12.000 caracteres cada una). Úsalo para revisar un documento completo de forma ordenada (parte 1, 2, 3…) o para ver el contexto de un fragmento encontrado con consultar_documentos.', S({ documento: str('Nombre del documento'), parte: { type: 'integer', description: 'Número de parte (empieza en 1)' } }, ['documento']), async i => {
+      const r = await Memory.readPart(pid, String(i.documento || ''), i.parte);
+      if (r.error) return r.error;
+      return '«' + r.name + '» · parte ' + r.part + ' de ' + r.parts + (r.part < r.parts ? ' (sigue en la parte ' + (r.part + 1) + ')' : ' (final)') + '\n\n' + r.text;
     });
     add('registrar_decision', 'Guarda una decisión o dato relevante en la memoria operativa del proyecto actual para que el equipo la recuerde.', S({ texto: str('Decisión o dato, en una o dos frases') }, ['texto']), async i => { Memory.note(pid, String(i.texto), agent.id, ctx.task && ctx.task.id); return 'Guardado en la memoria del proyecto.'; });
     add('proponer_regla_memoria', 'Propone una regla, preferencia o procedimiento PERMANENTE. No se aplica hasta que el administrador la apruebe. Úsala solo si el administrador expresa algo duradero.', S({ alcance: { type: 'string', enum: ['agencia', 'proyecto', 'cliente', 'agente'] }, texto: str('La regla, redactada de forma clara'), motivo: str('Por qué la propones') }, ['alcance', 'texto']), async i => {
