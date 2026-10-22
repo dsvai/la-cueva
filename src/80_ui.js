@@ -86,6 +86,7 @@ const UI = (() => {
     const fav = $('#fab-av'), d = Roster.get('daniel'); fav.getContext('2d').drawImage(avatarCanvas(Object.assign({ bg: '#4f3b2d' }, d.avatar), 36), 0, 0);
     $('#new-agent').onclick = () => Panels.agent(null);
     $('#dir-q').addEventListener('input', renderDir);
+    $('#dir-status').addEventListener('change', renderDir);
     TouchControls.bind($('#joystick'), $('#joystick-knob'), View.setPad);
     document.addEventListener('keydown', e => { if (e.key === 'Escape') { if ($('#modal').classList.contains('open')) Panels.close(); else if ($('#sel').hidden === false) View.select(null); else if (openDrawer) close(openDrawer); } });
   }
@@ -101,26 +102,45 @@ const UI = (() => {
 
   /* ---------- directorio ---------- */
   function renderDir() {
+    const focusedToggle = document.activeElement?.dataset.agentToggle;
     const q = ($('#dir-q').value || '').toLowerCase().trim();
+    const state = $('#dir-status').value, agents = Roster.all();
+    $('#dir-count').textContent = agents.filter(a => a.enabled !== false).length + ' de ' + agents.length + ' activos';
     const list = $('#dir-list'); list.innerHTML = '';
     const groups = ['DIR'].concat(DEPT_IDS);
     for (const g of groups) {
-      const ags = Roster.all().filter(a => a.dept === g && (!q || (a.name + ' ' + a.role + ' ' + a.specialty).toLowerCase().includes(q)));
+      const ags = agents.filter(a => a.dept === g && (state === 'all' || (a.enabled !== false) === (state === 'active')) && (!q || (a.name + ' ' + a.role + ' ' + a.specialty).toLowerCase().includes(q)));
       if (!ags.length) continue;
       const R = ROOMS[g];
       const sec = h('<div class="dept"><h4><i style="background:' + R.wall + '"></i>' + esc(g === 'DIR' ? 'Dirección' : DEPT_NAMES[g]) + '<button class="btn sm ghost" title="Ir a la sala">Ir a la sala</button></h4></div>');
       sec.querySelector('button').onclick = () => { View.focusRoom(g); if (window.innerWidth < 900) close('dir'); };
       for (const a of ags) {
+        const active = a.enabled !== false;
         const st = Orch.agentStatus(a.id);
+        const entry = h('<div class="agent-entry' + (active ? '' : ' inactive') + '"></div>');
         const row = h('<button class="agent-row"><span class="mid"><span class="nm"></span><span class="rl"></span></span><span class="dot st-' + st.state + '" title="' + esc(ST_TXT[st.state]) + '"></span></button>');
-        row.prepend(avatarEl(a, 34)); row.querySelector('.nm').textContent = a.name + (a.enabled === false ? ' (desactivado)' : ''); row.querySelector('.rl').textContent = a.role + ' · ' + (st.label || '');
-        row.onclick = () => { View.focusAgent(a.id); if (window.innerWidth < 900) close('dir'); };
-        row.ondblclick = () => ChatUI.open(a.id);
-        sec.append(row);
+        row.prepend(avatarEl(a, 34)); row.querySelector('.nm').textContent = a.name; row.querySelector('.rl').textContent = a.role + ' · ' + (active ? st.label || '' : 'Desactivado');
+        row.title = active ? 'Ver a ' + a.name + ' en la oficina' : 'Abrir ficha de ' + a.name;
+        if (!active) row.querySelector('.dot').hidden = true;
+        row.onclick = () => { if (active) View.focusAgent(a.id); else Panels.agent(a.id); if (window.innerWidth < 900) close('dir'); };
+        if (active) row.ondblclick = () => ChatUI.open(a.id);
+        const toggle = h('<button class="btn sm sec" type="button"></button>');
+        toggle.dataset.agentToggle = a.id;
+        toggle.textContent = active ? 'Desactivar' : 'Activar'; toggle.setAttribute('aria-label', toggle.textContent + ' a ' + a.name);
+        toggle.onclick = () => {
+          const updated = Roster.setEnabled(a.id, !active);
+          Activity.log('equipo', (updated.enabled ? 'Activaste a ' : 'Desactivaste a ') + updated.name, { agentId: a.id });
+          renderDir(); toast(updated.name + (updated.enabled ? ' está activo' : ' está desactivado'));
+        };
+        entry.append(row, toggle); sec.append(entry);
       }
       list.append(sec);
     }
     if (!list.children.length) list.append(h('<div class="empty"><b>Sin resultados</b>Prueba con otro nombre o cargo.</div>'));
+    if (focusedToggle) {
+      const next = $$('[data-agent-toggle]', list).find(b => b.dataset.agentToggle === focusedToggle);
+      (next || $('#dir-status')).focus({ preventScroll: true });
+    }
   }
 
   /* ---------- selección y tooltip ---------- */
@@ -128,7 +148,7 @@ const UI = (() => {
   function onSelect(id) {
     selId = id; const box = $('#sel');
     if (!id) { box.hidden = true; return; }
-    const a = Roster.get(id); if (!a) { box.hidden = true; return; }
+    const a = Roster.get(id); if (!a || a.enabled === false) { box.hidden = true; return; }
     const st = Orch.agentStatus(id);
     box.innerHTML = '';
     box.append(h('<button class="x" aria-label="Cerrar">×</button>'));
@@ -199,7 +219,7 @@ const ChatUI = (() => {
     const a = Roster.get(agentId), st = Orch.agentStatus(agentId);
     const r = root(); r.innerHTML = ''; r.classList.toggle('wide', wide);
     const head = h('<div class="dhead"><div style="flex:1;min-width:0"><h2></h2><div class="hint"></div></div><button class="btn sm ghost" id="c-new" title="Nueva conversación"><svg><use href="#i-plus"/></svg><span>Nueva</span></button><button class="btn sm ghost" id="c-wide" title="' + (wide ? 'Reducir' : 'Ampliar a espacio de trabajo') + '"><svg><use href="#i-exp"/></svg></button><button class="x" aria-label="Cerrar chat" style="position:static">×</button></div>');
-    head.prepend(avatarEl(a, 40)); head.querySelector('h2').textContent = a.name; head.querySelector('.hint').innerHTML = esc(a.role) + ' · ' + stChip(st);
+    head.prepend(avatarEl(a, 40)); head.querySelector('h2').textContent = a.name; head.querySelector('.hint').innerHTML = esc(a.role) + ' · ' + (a.enabled === false ? '<span class="chip plain">Desactivado</span>' : stChip(st));
     head.querySelector('.x').onclick = () => UI.close('chat');
     head.querySelector('#c-new').onclick = () => { const c = Chat.newConv(agentId, currentProject()); convId = c.id; render(); };
     head.querySelector('#c-wide').onclick = () => { wide = !wide; render(); };
@@ -258,8 +278,8 @@ const ChatUI = (() => {
     box.innerHTML = '';
     const a = Roster.get(agentId);
     if (!list.length) {
-      const e = h('<div class="empty"><b></b><span></span></div>'); e.querySelector('b').textContent = 'Habla con ' + a.name;
-      e.querySelector('span').textContent = agentId === 'daniel' ? 'Pregúntale, pídele una estrategia o encárgale un trabajo: él decide si conversar, crear un plan para el equipo o programarlo.' : a.specialty;
+      const e = h('<div class="empty"><b></b><span></span></div>'); e.querySelector('b').textContent = (a.enabled === false ? 'Historial de ' : 'Habla con ') + a.name;
+      e.querySelector('span').textContent = a.enabled === false ? 'No hay mensajes en esta conversación. Reactiva al agente para empezar a trabajar con él.' : agentId === 'daniel' ? 'Pregúntale, pídele una estrategia o encárgale un trabajo: él decide si conversar, crear un plan para el equipo o programarlo.' : a.specialty;
       box.append(e);
     }
     for (const m of list) box.append(msgEl(m));
@@ -320,9 +340,16 @@ const ChatUI = (() => {
     return el;
   }
   function refreshPlans() { $$('.plan[data-plan]', root()).forEach(p => p.replaceWith(planCard(p.dataset.plan))); }
+  let composerEnabled = null;
   function composer() {
     const c = $('.composer', root()); c.innerHTML = '';
     const a = Roster.get(agentId);
+    composerEnabled = a.enabled !== false;
+    if (!composerEnabled) {
+      const notice = h('<div class="note">Este agente está desactivado. Puedes consultar su historial y volver a activarlo desde su ficha.</div>');
+      const edit = h('<button class="btn sec" type="button">Abrir ficha</button>'); edit.onclick = () => Panels.agent(agentId);
+      c.append(notice, edit); return;
+    }
     const sug = SUG[agentId] || SUG[a.dept] || [];
     const cv = Store.get('convs', convId);
     if (sug.length && (!cv || !cv.count)) { const s = h('<div class="sugg"></div>'); for (const t of sug) { const b = h('<button type="button"></button>'); b.textContent = t; b.onclick = () => { $('textarea', c).value = t; $('textarea', c).focus(); }; s.append(b); } c.append(s); }
@@ -348,6 +375,7 @@ const ChatUI = (() => {
   }
   function composerState(live) { const b = $('#c-send', root()); if (!b) return; b.innerHTML = live ? '<svg><use href="#i-stop"/></svg>' : '<svg><use href="#i-send"/></svg>'; b.setAttribute('aria-label', live ? 'Detener' : 'Enviar'); b.classList.toggle('danger', live); }
   async function send() {
+    if (Roster.get(agentId)?.enabled === false) { toast(AI.copy('agent_disabled'), true); return; }
     const ta = $('#c-in', root()); const text = ta.value.trim();
     if (!text && !atts.length) return;
     if (AI.status !== 'ok') { toast(AI.copy('no_ai'), true); return; }
@@ -391,5 +419,6 @@ const ChatUI = (() => {
   });
   let rp = 0; const plansLater = () => { clearTimeout(rp); rp = setTimeout(() => { if (root().classList.contains('open')) { refreshPlans(); if (wide) sideCtx(); } }, 150); };
   Bus.on('store:tasks', plansLater); Bus.on('store:plans', plansLater);
+  Bus.on('store:agents', () => { if (agentId && root().classList.contains('open') && (Roster.get(agentId)?.enabled !== false) !== composerEnabled) render(); });
   return { open, render, planCard, get agentId() { return agentId; }, get convId() { return convId; } };
 })();

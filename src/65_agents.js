@@ -28,13 +28,22 @@ const Roster = (() => {
   function get(id) { return all().find(a => a.id === id) || null; }
   function enabled() { return all().filter(a => a.enabled !== false); }
   function save(a) { a.updatedAt = Date.now(); Store.put('agents', JSON.parse(JSON.stringify(a))); Bus.emit('roster'); return a; }
+  function setEnabled(id, active) {
+    if (!get(id)) throw new Error('Ese agente no existe.');
+    const change = { enabled: !!active, updatedAt: Date.now() };
+    // Default profiles need only an override; retain saved instructions and avatars.
+    if (Store.get('agents', id)) Store.patch('agents', id, change);
+    else Store.put('agents', Object.assign({ id }, change));
+    Bus.emit('roster');
+    return get(id);
+  }
   function create(f) {
     const id = (f.name || 'agente').toLowerCase().normalize('NFD').replace(/[^a-z0-9]/g, '').slice(0, 14) + '-' + Math.random().toString(36).slice(2, 5);
     const look = f.avatar || { skin: SKINS[Math.floor(Math.random() * SKINS.length)], hair: HAIRS[Math.floor(Math.random() * HAIRS.length)], hs: ['short', 'long', 'bun', 'curly', 'buzz', 'ponytail'][Math.floor(Math.random() * 6)], top: ROOMS[f.dept] ? ROOMS[f.dept].wall : BR.forest, ts: 'shirt', pants: BR.brown, shoes: '#2a2018', badge: ROOMS[f.dept] ? ROOMS[f.dept].accent : BR.sand };
     const a = Object.assign(base({ id, name: f.name, role: f.role, dept: f.dept, specialty: f.specialty || '', personality: f.personality || '', instructions: f.instructions || '', avatar: look, tier: 'default', model: '', enabled: true, custom: true }), { createdAt: Date.now() });
     return save(a);
   }
-  return { all, get, enabled, save, create };
+  return { all, get, enabled, save, setEnabled, create };
 })();
 
 /* ---------- memoria: normativa (reglas aprobadas) y operativa (proyecto) ---------- */

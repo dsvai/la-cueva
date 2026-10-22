@@ -188,6 +188,7 @@ const Chat = (() => {
   async function send(convId, text, atts) {
     const cv = Store.get('convs', convId); if (!cv || streaming.has(convId)) return;
     const agent = Roster.get(cv.agentId); const project = cv.projectId ? Store.get('projects', cv.projectId) : null;
+    if (!agent || agent.enabled === false) { toast(AI.copy('agent_disabled'), true); return null; }
     // los documentos adjuntos en una conversación de proyecto pasan a la base de conocimiento del proyecto
     if (cv.projectId) for (const a of (atts || [])) if (a.kind === 'text' && (a.doc || (a.text || '').length > 1500)) {
       const body = a.full || a.text || '';

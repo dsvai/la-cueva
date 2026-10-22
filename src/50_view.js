@@ -31,7 +31,10 @@ const View = (() => {
         ne.name = a.name; ne.role = a.role; ents.set(a.id, ne);
       } else { e.P = P; e.sheet = buildSheet(P); e.name = a.name; e.role = a.role; }
     }
-    for (const id of [...ents.keys()]) if (!keep.has(id)) ents.delete(id);
+    for (const id of [...ents.keys()]) if (!keep.has(id)) {
+      const e = ents.get(id); if (e.poi) e.poi.taken = null;
+      ents.delete(id); if (selected && selected.id === id) select(null);
+    }
   }
 
   /* ---------- movimiento ---------- */

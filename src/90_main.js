@@ -95,6 +95,7 @@ const NEXT_MD = `## Informe de esta entrega
   let bt = 0; Bus.on('store:any', () => { clearTimeout(bt); bt = setTimeout(() => { UI.badges(); if ($('#dir').classList.contains('open')) UI.renderDir(); if (UI.selId) UI.onSelect(UI.selId); }, 250); });
   Bus.on('live', () => { if (UI.selId) UI.onSelect(UI.selId); });
   Bus.on('roster', () => View.setAgents(Roster.enabled()));
+  Bus.on('store:agents', () => View.setAgents(Roster.enabled()));
   Bus.on('store:error', e => toast('No se pudo guardar un cambio: ' + ((e && e.message) || 'error desconocido'), true));
   Bus.on('ai:status', UI.sysPills);
   Sched.tick(); setInterval(Sched.tick, 30000);

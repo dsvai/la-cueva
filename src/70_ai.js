@@ -28,6 +28,7 @@ const AI = (() => {
     images_unavailable: 'Esta vista no permite enviar imágenes a Claude.',
     tools_unavailable: 'Esta vista no permite que los agentes usen herramientas.',
     cancelled: 'Detenido.',
+    agent_disabled: 'Este agente está desactivado. Actívalo desde el directorio para volver a trabajar con él.',
     upstream_error: 'Fallo temporal de conexión con Claude. Vuelve a intentarlo.',
     no_ai: LC_SERVER ? 'La IA no está configurada en el servidor: falta la clave de Anthropic API u OpenAI API en las variables de entorno de Vercel.' : 'La IA no está disponible aquí. Abre La Cueva dentro de Claude con tu sesión iniciada.',
     no_provider: 'La IA no está configurada en el servidor: falta la clave de Anthropic API u OpenAI API en Vercel.',
@@ -42,10 +43,11 @@ const AI = (() => {
   };
   function copy(code) { return COPY[code] || COPY.upstream_error; }
   async function call(o) {
+    const agent = o.agent;
+    if (agent.enabled === false || Roster.get(agent.id)?.enabled === false) throw { code: 'agent_disabled', message: copy('agent_disabled') };
     if (!sample) throw { code: 'no_ai', message: copy('no_ai') };
     const cfg = Config.get();
     if (!LC_SERVER && Activity.today().calls >= cfg.dailyCalls && !o.ignoreDaily) throw { code: 'daily_limit', message: copy('daily_limit') };
-    const agent = o.agent;
     const opts = { signal: o.signal };
     if (LC_SERVER) Object.assign(opts, { resumeState: o.resumeState, onCheckpoint: o.onCheckpoint,
       context: { agentId: agent.id, projectId: o.projectId || null, planId: o.planId || null } });

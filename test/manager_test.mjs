@@ -4,8 +4,8 @@ import fs from 'node:fs';
 import vm from 'node:vm';
 import { character, disposeCharacter } from '../src/studio/characters.js';
 
-let lastCall;
-const sample = async (input, opts) => { lastCall = { input, opts }; return { text: 'Local test', usage: { in: 1, out: 1 } }; };
+let lastCall, modelCalls = 0;
+const sample = async (input, opts) => { modelCalls++; lastCall = { input, opts }; return { text: 'Local test', usage: { in: 1, out: 1 } }; };
 sample.provider = 'anthropic';
 sample.limits = async () => ({ tools: { maxCount: 20 } });
 const sprite = () => ({ ax: 0, ay: 0, screens: [] });
@@ -19,8 +19,8 @@ const context = vm.createContext({
 context.window = context;
 const files = ['10_core.js', '11_chars.js', '20_data.js', '30_world.js', '60_store.js', '65_agents.js', '70_ai.js', '72_chat.js', '75_orch.js'];
 const rt = vm.runInContext(files.map(f => fs.readFileSync(new URL('../src/' + f, import.meta.url), 'utf8')).join('\n') +
-  '\n;({ Roster, Store, Prompt, Tools, AI, Orch, World, DEFAULT_AGENTS, TILE });', context);
-const { Roster, Store, Prompt, Tools, AI, Orch, World } = rt;
+  '\n;({ Roster, Store, Prompt, Tools, AI, Chat, Orch, World, DEFAULT_AGENTS, TILE });', context);
+const { Roster, Store, Prompt, Tools, AI, Chat, Orch, World } = rt;
 await Store.init(); await AI.init();
 try {
   // Existing installations have saved overrides, not a fresh seed of the roster.
@@ -87,6 +87,35 @@ try {
   const avatar = character(manager.avatar);
   assert.ok(avatar.root.children.length); disposeCharacter(avatar);
   console.log('✓ delegated tasks, distinct 3D character and reachable sales workstation');
+
+  const essential = ['daniel', 'marco', 'alex', 'mia', 'kai'];
+  for (const a of Roster.all()) Roster.setEnabled(a.id, essential.includes(a.id));
+  assert.deepEqual(Array.from(Roster.enabled(), a => a.id).sort(), essential.slice().sort());
+  assert.equal(Store.get('agents', 'leo').avatar, undefined, 'toggling a default must not freeze its profile or avatar');
+  assert.equal(Roster.get('daniel').instructions, 'Instrucciones propias');
+  assert.ok(!Prompt.team('daniel').includes('leo:'));
+  assert.throws(() => Orch.createPlan({ titulo: 'Inactive assignee', tareas: [{ titulo: 'Test', responsable: 'leo' }] }), /desactivado/);
+  console.log('✓ a five-person team persists without overwriting profiles or assigning inactive specialists');
+
+  const before = JSON.stringify(Roster.get('marco').avatar), instructions = Roster.get('marco').instructions;
+  const conv = Chat.ensureConv('marco', project.id);
+  Chat.post(conv.id, { role: 'user', text: 'Historial conservado' });
+  const docCount = Store.all('pdocs').length, callsBefore = modelCalls;
+  const stale = Roster.get('marco');
+  Roster.setEnabled('marco', false);
+  const result = await Chat.send(conv.id, 'No debe ejecutarse', [{ kind: 'text', name: 'No importar', doc: true, text: 'Privado' }]);
+  assert.equal(result, null); assert.equal(modelCalls, callsBefore);
+  assert.equal(Store.all('pdocs').length, docCount);
+  assert.equal((await Chat.messages(conv.id)).length, 1, 'deactivation must preserve chat history without adding messages');
+  await assert.rejects(() => AI.call({ agent: stale, input: 'Stale profile' }), e => e.code === 'agent_disabled');
+  Roster.setEnabled('marco', true);
+  assert.equal(JSON.stringify(Roster.get('marco').avatar), before);
+  assert.equal(Roster.get('marco').instructions, instructions);
+  assert.ok(Prompt.team('daniel').includes('marco:'));
+  await AI.call({ agent: Roster.get('marco'), input: 'Reactivated' });
+  assert.equal(modelCalls, callsBefore + 1);
+  assert.throws(() => Roster.setEnabled('missing-agent', true), /no existe/);
+  console.log('✓ deactivation blocks new chat/model calls; reactivation retains avatar, instructions, documents and history');
 } finally {
   Orch.setHold(true); await Store.flush();
 }

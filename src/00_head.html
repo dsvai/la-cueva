@@ -139,6 +139,13 @@ nav.main::-webkit-scrollbar{display:none}
 .agent-row .nm{font-weight:700;font-size:var(--t-s);display:block}
 .agent-row .rl{color:var(--ink-2);font-size:var(--t-xs);display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .agent-row .mid{flex:1;min-width:0}
+.roster-tools{display:flex;align-items:center;justify-content:space-between;gap:8px;margin:12px 0 8px;font-size:var(--t-s)}
+.roster-tools select{padding:6px 8px;min-width:0;border:1px solid var(--line-2);border-radius:var(--r1);background:var(--paper)}
+.agent-entry{display:flex;align-items:center;gap:4px;border-radius:var(--r1);margin:3px 0}
+.agent-entry .agent-row{flex:1;min-width:0;width:auto}
+.agent-entry>.btn{flex-shrink:0;font-size:11px;padding:7px 8px;min-height:36px}
+.agent-entry.inactive{background:var(--paper-2)}
+.agent-entry.inactive .av{filter:grayscale(.65);opacity:.65}
 .dot{width:9px;height:9px;border-radius:50%;background:currentColor;flex-shrink:0}
 
 /* ===== chat ===== */

@@ -56,7 +56,7 @@
 
 <aside id="dir" class="drawer" aria-label="Directorio">
   <div class="dhead"><h2>Directorio</h2><button class="btn sm sec" id="new-agent"><svg><use href="#i-plus"/></svg>Nuevo agente</button><button class="x" data-close="dir" aria-label="Cerrar">×</button></div>
-  <div class="dbody"><input class="search" id="dir-q" type="search" placeholder="Buscar por nombre, cargo o especialidad" aria-label="Buscar en el directorio"><div id="dir-list"></div></div>
+  <div class="dbody"><input class="search" id="dir-q" type="search" placeholder="Buscar por nombre, cargo o especialidad" aria-label="Buscar en el directorio"><div class="roster-tools"><strong id="dir-count" aria-live="polite"></strong><select id="dir-status" aria-label="Filtrar agentes por estado"><option value="all">Todos</option><option value="active">Activos</option><option value="inactive">Desactivados</option></select></div><p class="hint">Puedes activar o desactivar cada agente. Sus conversaciones, instrucciones y documentos se conservan.</p><div id="dir-list"></div></div>
 </aside>
 
 <aside id="chat" class="drawer" aria-label="Chat"></aside>
