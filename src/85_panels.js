@@ -376,9 +376,9 @@ const Panels = (() => {
       if (t === 'feat') {
         const ai = AI.status === 'ok', db = Store.mode === 'db';
         const rows = [
-          ['Oficina isométrica, 12 espacios y 22 personajes únicos', 'op', 'Estudio 3D con materiales y luz suave, personajes editables y animados. WASD o flechas, ratón, zoom y directorio; modo 2D compatible si no hay WebGL.'],
+          ['Oficina isométrica, 12 espacios y ' + Roster.enabled().length + ' agentes', 'op', 'Estudio 3D con materiales y luz suave, personajes editables y animados. WASD o flechas, ratón, zoom y directorio; modo 2D compatible si no hay WebGL.'],
           ['Estados visibles de cada agente', 'op', 'Disponible, trabajando, colaborando, esperando aprobación o detenido, según tareas y llamadas reales. Los descansos son ambientales y nunca simulan trabajo.'],
-          ['Chat real con los 22 agentes', ai ? 'op' : 'cfg', ai ? 'Responden con Claude usando tu sesión. Markdown, código, adjuntos y herramientas.' : 'Abre La Cueva dentro de Claude con sesión iniciada y acepta el permiso para usar Claude.'],
+          ['Chat real con ' + Roster.enabled().length + ' agentes', ai ? 'op' : 'cfg', ai ? 'Responden con Claude usando tu sesión. Markdown, código, adjuntos y herramientas.' : 'Abre La Cueva dentro de Claude con sesión iniciada y acepta el permiso para usar Claude.'],
           ['Historial persistente y proyectos', db ? 'op' : 'cfg', db ? 'Guardado en la base de datos de La Cueva.' : (Store.mode === 'local' ? 'Ahora mismo solo en este navegador.' : 'Sin almacenamiento en esta vista.')],
           ['Daniel: conversar, ejecutar y programar', ai ? 'op' : 'cfg', 'Decide el modo; solo crea planes cuando se lo pides.' + (ai && !AI.canTools ? ' Aviso: esta vista no admite herramientas, así que no podrá crear planes.' : '')],
           ['Orquestador: planes, tareas, dependencias y colaboración', ai ? 'lim' : 'cfg', 'Cola real con estados, reintentos, pausa, cancelación, límites y recuperación. Limitación: avanza solo con La Cueva abierta.'],
@@ -423,7 +423,7 @@ const Panels = (() => {
     b.innerHTML = '';
     const w = hs && hs.worker;
     const rows = [
-      ['Oficina isométrica, 12 espacios y 22 personajes únicos', 'op', 'Estudio 3D con materiales y luz suave, personajes editables y animados. WASD o flechas, ratón, zoom y directorio; modo 2D compatible si no hay WebGL.'],
+      ['Oficina isométrica, 12 espacios y ' + Roster.enabled().length + ' agentes', 'op', 'Estudio 3D con materiales y luz suave, personajes editables y animados. WASD o flechas, ratón, zoom y directorio; modo 2D compatible si no hay WebGL.'],
       ['Estados visibles de cada agente', 'op', 'Según tareas reales del servidor y de tus chats. Los descansos son ambientales y nunca simulan trabajo.'],
       ['Acceso privado con contraseña', hs && hs.password ? 'op' : 'cfg', 'Sesión con cookie protegida; la contraseña vive solo en Vercel (ADMIN_PASSWORD).'],
       ['Base de datos en el servidor', hs && hs.db ? 'op' : 'cfg', hs && hs.db ? 'Postgres: proyectos, chats, tareas, memoria y entregables, compartidos entre tus dispositivos.' : ((hs && hs.dbError) || 'Falta conectar la base de datos.')],

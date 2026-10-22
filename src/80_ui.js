@@ -185,6 +185,7 @@ const ChatUI = (() => {
   const root = () => $('#chat');
   const SUG = {
     daniel: ['¿Qué puede hacer cada departamento por mí?', 'Crea un proyecto nuevo para uno de mis negocios', 'Prepara y ejecuta un plan para lanzar una tienda Shopify'],
+    marco: ['Busca y prioriza festivales, desfiles y eventos adecuados para mi proyecto', 'Prepara una propuesta de colaboración y patrocinio para mi marca', 'Compara proveedores y prepara una estrategia de negociación'],
     DEV: ['¿Qué necesitas de mí para empezar?', 'Revisa la estructura de una tienda Shopify para convertir más', 'Hazme una landing en un solo archivo HTML'],
     DIS: ['Propón tres líneas visuales para una marca', '¿Qué necesitas para diseñar las creatividades?', 'Haz un brief creativo para una campaña'],
     PAID: ['¿Cómo repartirías 1.500 € al mes entre canales?', 'Estructura una campaña de captación', '¿Qué datos necesitas para analizar mis campañas?'],

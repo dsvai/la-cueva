@@ -65,7 +65,7 @@ const NEXT_SERVER_MD = `## Informe de la Fase 4 (backend)
 
 const NEXT_MD = `## Informe de esta entrega
 
-**1. Implementado de verdad:** identidad de La Cueva con el logotipo oficial; oficina pixel art 2D con 12 espacios y 22 personajes únicos; navegación con WASD o flechas, ratón, zoom y directorio; chat real con todos los agentes (Markdown, código, adjuntos, herramientas, historial por proyecto); proyectos; orquestador con planes, tareas, colaboración, aprobaciones y límites; memoria operativa y normativa; fichas editables y contrataciones; panel de dirección con actividad y consumo reales; tareas programadas.
+**1. Implementado de verdad:** identidad de La Cueva con el logotipo oficial; oficina isométrica 3D con 12 espacios y personajes editables, incluido Marco, mánager de alianzas y eventos; navegación con WASD o flechas, joystick en móvil, ratón, zoom y directorio; chat real con todos los agentes (Markdown, código, adjuntos, herramientas, historial por proyecto); proyectos; orquestador con planes, tareas, colaboración, aprobaciones y límites; memoria operativa y normativa; fichas editables y contrataciones; panel de dirección con actividad y consumo reales; tareas programadas.
 
 **2. Cómo probarlo:** abre el chat de Daniel (botón abajo a la derecha) y pídele, por ejemplo, *«Crea un proyecto para mi tienda de gorras y prepara con Alex, Mia y Clara una propuesta de tienda Shopify»*. Verás el plan en el chat; apruébalo y observa en la oficina quién trabaja. El resultado llega como informe de Daniel y como entregables descargables.
 

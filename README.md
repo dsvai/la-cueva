@@ -1,6 +1,8 @@
 # La Cueva
 
-Agencia digital de agentes de IA de **La Cueva by Daniel**: estudio 3D isométrico con 22 agentes editables y animados, chat real, proyectos, orquestador de tareas, memoria supervisada y aprobaciones.
+Agencia digital de agentes de IA de **La Cueva by Daniel**: estudio 3D isométrico con 23 agentes editables y animados, chat real, proyectos, orquestador de tareas, memoria supervisada y aprobaciones.
+
+**Marco · Mánager de alianzas y eventos** está en Ventas y Crecimiento. Investiga oportunidades, colaboraciones, festivales, desfiles y eventos; compara proveedores y prepara propuestas y negociaciones. Selecciona un proyecto en su chat para darle su documentación y memoria. La investigación web requiere el backend con Anthropic y su permiso de internet activo. Prepara las comunicaciones y acuerdos para revisión; no los envía ni firma. Se incorpora también a las instalaciones con fichas guardadas, conservando las personalizaciones del equipo.
 
 La oficina usa Three.js empaquetado con esbuild, materiales procedurales, cámara ortográfica y mobiliario agrupado para reducir llamadas de dibujo. Conserva el plano lógico y las rutas del visor anterior, con selección por rayos, zoom, arrastre y controles de pantalla tanto con teclado como con joystick. Los retratos de listas y chats se renderizan a partir del mismo personaje. La animación de trabajo depende del estado real de cada agente. Sin WebGL se activa la vista 2D compatible; los modelos no requieren descargas externas. Ver [diseño y verificación del estudio](docs/isometric-studio.md).
 
@@ -80,7 +82,7 @@ Claves de diseño:
 | `src/00_head.html`, `src/05_body.html` | Sistema de diseño (tokens CSS) y estructura |
 | `src/10_core.js` | Utilidades, pincel de píxeles, bus de eventos, modo de ejecución |
 | `src/11_chars.js`, `src/12_tiles.js`, `src/13_props.js` | Personajes, suelos, muros y muebles |
-| `src/20_data.js` | Salas, 22 agentes, herramientas, permisos, integraciones |
+| `src/20_data.js` | Salas, 23 agentes, herramientas, permisos, integraciones |
 | `src/30_world.js`, `src/50_view.js` | Mapa, rutas, cámara, dibujo y entrada |
 | `src/60_store.js` | Persistencia, fusión de cambios remotos, actividad, consumo y contrato del orquestador |
 | `src/65_agents.js`, `src/70_ai.js`, `src/72_chat.js`, `src/75_orch.js` | Plantilla, memoria, IA, chat, orquestador y herramientas |
