@@ -25,17 +25,19 @@ export function buildOffice(scene, world) {
     box(root, x, 1.14, 1.13, 3.6, .055, .1, P.walnut);
     box(root, x, .87, 1.18, 3.9, .12, .42, wood);
   }
-  for (const z of [5.6, 13.6, 21.6, 29.5]) {
+  for (let r = 0; r < world.ROWS; r++) {
+    const z = world.TOP + r * (world.ZH + world.GAP) + 2.6;
     box(root, .93, 2, z, .13, 2.7, 4.1, P.cream);
     box(root, 1.04, 2, z, .06, 2.5, 3.9, sky);
     for (const dz of [-1.9, 0, 1.9]) box(root, 1.1, 2, z + dz, .09, 2.6, .05, P.walnut);
     box(root, 1.12, .8, z, .35, .1, 4.2, wood);
   }
   const brand = new T.MeshBasicMaterial({ map: textTexture('LA CUEVA', { size: 58, bg: '#344c3d', ink: '#efe5d5', width: 768 }) });
-  box(root, 15.5, 2.45, 1.04, 6.8, 1.1, .08, brass);
-  box(root, 15.5, 2.45, 1.1, 6.65, .98, .06, brand);
-  for (const x of [12.6, 18.4]) cylinder(root, x, 3.45, 2, .035, 1.2, metal);
-  for (const x of [12.6, 18.4]) {
+  const bx = world.brandX;   // rótulo sobre el escritorio de Daniel
+  box(root, bx, 2.45, 1.04, 6.8, 1.1, .08, brass);
+  box(root, bx, 2.45, 1.1, 6.65, .98, .06, brand);
+  for (const x of [bx - 2.9, bx + 2.9]) cylinder(root, x, 3.45, 2, .035, 1.2, metal);
+  for (const x of [bx - 2.9, bx + 2.9]) {
     cylinder(root, x, 2.85, 2, .24, .12, P.cream);
     cylinder(root, x, 2.78, 2, .2, .025, new T.MeshBasicMaterial({ color: '#fff2d4' }));
   }
@@ -104,11 +106,13 @@ export function buildOffice(scene, world) {
     box(screenGroup, 0, .97, 0, .42, .035, .24, metal);
     box(screenGroup, 0, 1.1, -.04, .045, .26, .05, metal);
     box(screenGroup, 0, 1.39, -.06, .88, .55, .055, metal);
-    const screenMat = new T.MeshStandardMaterial({ color: '#233e35', emissive: '#2f5447', emissiveIntensity: .12, roughness: .35 });
-    box(screenGroup, 0, 1.4, -.024, .8, .47, .012, screenMat, .006);
-    const bars = [];
-    for (let i = 0; i < 5; i++) bars.push(box(screenGroup, -.28 + i * .14, 1.3, -.013, .08, .12 + i * .04, .003, '#9ba78c', .001));
-    screens.push({ station: st, material: screenMat, bars });
+    box(screenGroup, 0, 1.4, -.03, .8, .47, .012, '#1c2b26', .006);
+    // pantalla viva: un lienzo que la vista redibuja según el estado real del agente
+    const canvas = document.createElement('canvas'); canvas.width = 192; canvas.height = 112;
+    const tex = new T.CanvasTexture(canvas); tex.colorSpace = T.SRGBColorSpace;
+    const face = new T.Mesh(new T.PlaneGeometry(.78, .45), new T.MeshBasicMaterial({ map: tex, toneMapped: false }));
+    face.position.set(0, 1.4, -.017); screenGroup.add(face);
+    screens.push({ station: st, canvas, ctx: canvas.getContext('2d'), tex, face, kind: null, key: '', drawn: 0 });
     box(g, 0, .968, -sign * .27, .52, .035, .19, '#c5c6b7', .012);
     box(g, .45, .965, -sign * .23, .11, .035, .17, '#b9bcae', .025);
     cylinder(g, .72, 1.05, 0, .07, .19, P.cream);
@@ -116,15 +120,26 @@ export function buildOffice(scene, world) {
     box(g, -.76, .96, -.1, .19, .04, .3, P.sage, .008);
     chair(x, z, south);
   }
-  function sofa(x, z, w = 2.75) {
-    const g = group(root, x, 0, z);
+  function sofa(x, z, w = 2.75, rot = 0, color = P.green) {
+    const g = group(root, x, 0, z); g.rotation.y = rot;
     for (const xx of [-w / 2 + .2, w / 2 - .2]) for (const zz of [-.28, .28]) cylinder(g, xx, .16, zz, .04, .25, P.walnut);
-    box(g, 0, .42, 0, w, .45, .92, P.green, .1);
-    box(g, 0, .83, -.38, w, .75, .24, P.green, .09);
-    for (const xx of [-w / 2 + .1, w / 2 - .1]) box(g, xx, .68, 0, .25, .52, .94, P.green, .08);
+    box(g, 0, .42, 0, w, .45, .92, color, .1);
+    box(g, 0, .83, -.38, w, .75, .24, color, .09);
+    for (const xx of [-w / 2 + .1, w / 2 - .1]) box(g, xx, .68, 0, .25, .52, .94, color, .08);
     for (let i = 0; i < 3; i++) box(g, -w / 3 + i * w / 3, .67, .02, w / 3 - .09, .14, .65, P.sage, .065);
     const cushion = box(g, -w / 2 + .48, .96, -.1, .42, .42, .18, P.cream, .07); cushion.rotation.z = .15;
   }
+  function armchair(x, z, rot = 0, color = P.green) {
+    const g = group(root, x, 0, z); g.rotation.y = rot;
+    for (const xx of [-.3, .3]) for (const zz of [-.28, .28]) cylinder(g, xx, .1, zz, .035, .2, P.walnut);
+    box(g, 0, .36, 0, .86, .32, .82, color, .09);
+    box(g, 0, .56, .04, .62, .12, .64, P.cream, .05);
+    box(g, 0, .78, -.33, .86, .62, .2, color, .08);
+    for (const xx of [-.38, .38]) box(g, xx, .6, 0, .14, .34, .8, color, .06);
+  }
+  function rug(x, z, w, d, color, border) { box(root, x, .075, z, w + .14, .02, d + .14, border, .01); box(root, x, .085, z, w, .022, d, color, .01); }
+  function lamp(x, z) { cylinder(root, x, .03, z, .2, .05, P.dark); cylinder(root, x, .8, z, .025, 1.55, brass); cylinder(root, x, 1.65, z, .16, .26, P.cream, .24); }
+  function globe(x, z) { cylinder(root, x, .35, z, .05, .7, P.walnut); sphere(root, x, .95, z, .27, .27, .27, '#6f8a7a'); box(root, x, .95, z, .6, .03, .03, brass); }
   function table(x, z, w, d) {
     box(root, x, .69, z, w, .12, d, wood, .12);
     for (const dx of [-w * .36, w * .36]) for (const dz of [-d * .3, d * .3]) box(root, x + dx, .34, z + dz, .06, .65, .06, metal);
@@ -142,11 +157,25 @@ export function buildOffice(scene, world) {
       plant(x + 3.5, z + 1.5); plant(x + 4.5, z + 4.5, false);
       if (R.c === 0) plant(x + 7.5, z + .5); else if (R.c === 2) plant(x + 7.5, z + 3.5);
     } else if (R.kind === 'dir') {
-      box(root, centerX, .08, z + 3.3, 5.8, .035, 4.8, P.green, .03);
-      shelf(x + 1, z + .48, 1.75, 2.2); shelf(x + 7, z + .48, 1.75, 2.2);
-      plant(x + .5, z + 2.5); plant(x + 7.5, z + 2.5);
-      chair(x + 3.5, z + 3.8); chair(x + 4.5, z + 3.8);
-      sofa(x + .5, z + 4.6, .8);
+      // el mejor despacho: salón junto a las ventanas, librerías de nogal y escritorio de dirección bajo el rótulo
+      rug(x + 4, z + 2.4, 5.8, 4.4, P.green, P.brass);
+      rug(x + 13.5, z + 2.9, 6.6, 3.8, '#5a3d28', P.brass);
+      sofa(x + 3.5, z + 1.25, 2.75, 0, P.green); table(x + 4, z + 2.6, 1.5, .7);
+      armchair(x + 2.5, z + 3.75, Math.PI, '#5d6e52'); armchair(x + 5.5, z + 3.75, Math.PI, '#5d6e52');
+      shelf(x + 7, z + .48, 1.75, 2.3); shelf(x + 9, z + .48, 1.75, 2.3); shelf(x + 16, z + .48, 1.75, 2.3);
+      box(root, x + 13, .45, z + .45, 2.4, .85, .5, P.walnut, .04);
+      for (let i = 0; i < 4; i++) box(root, x + 12.1 + i * .6, .95, z + .45, .35, .2 + (i % 2) * .12, .25, [P.cream, P.green, P.brass, P.sage][i], .02);
+      chair(x + 12.5, z + 3.8, false, '#5a3d28'); chair(x + 13.5, z + 3.8, false, '#5a3d28');
+      globe(x + 15.5, z + 3.5); lamp(x + 10.5, z + 1.4);
+      plant(x + 1.5, z + .5); plant(x + 16.5, z + 4.5); plant(x + 1.5, z + 4.5, false);
+    } else if (R.kind === 'office') {
+      // segundo despacho, independiente
+      rug(x + 4, z + 2.9, 5.6, 3.6, '#6b4a2f', P.brass);
+      shelf(x + 2, z + .48, 1.75, 2.1);
+      board(x + 6.5, z + .5, 'DIS');
+      chair(x + 3.5, z + 3.8, false, P.walnut); chair(x + 4.5, z + 3.8, false, P.walnut);
+      armchair(x + 1.5, z + 3.5, Math.PI / 2, '#6b4a2f');
+      plant(x + 6.5, z + 3.5); plant(x + 1.5, z + 2.5, false);
     } else if (R.kind === 'meet') {
       box(root, centerX, .08, z + 3, 6.9, .035, 4.2, '#879079');
       table(centerX, z + 3, 5.5, 1.65);
@@ -161,26 +190,45 @@ export function buildOffice(scene, world) {
       box(root, x + 3.5, 1.28, z + .83, .28, .2, .02, P.brass);
       box(root, x + 4.5, .92, z + .5, .8, 1.8, .8, P.cream);
       box(root, x + 7.5, 1, z + .5, .85, 2, .85, P.green);
-      box(root, centerX, .085, z + 4, 7.7, .03, 3.6, '#d1bea1');
-      for (const dx of [1.5, 6.5]) { sofa(x + dx, z + 3.5); table(x + dx, z + 4.5, .85, .7); }
-      plant(x + 5.5, z + .5);
+      lamp(x + 5.5, z + .6);
+      shelf(x + 11, z + .48, 1.75, 1.6); shelf(x + 15, z + .48, 1.75, 1.6);
+      plant(x + 12.5, z + .5); plant(x + 17.5, z + .5, false);
+      box(root, centerX, .085, z + 4, R.w - .3, .03, 3.6, '#d1bea1');
     } else if (R.kind === 'recep') {
       box(root, centerX, .6, z + 1.5, 3.85, 1.2, .9, wood, .08);
       box(root, centerX, 1.24, z + 1.5, 4, .1, 1, P.cream);
       const name = new T.MeshBasicMaterial({ map: textTexture('LA CUEVA', { width: 512, size: 50, bg: '#79553b', ink: '#efe5d5' }) });
       box(root, centerX, .72, z + 1.96, 2.4, .5, .02, name);
-      sofa(x + 1, z + 3.6, 1.75); sofa(x + 7.5, z + 3.6, .8);
+      armchair(x + 7.5, z + 3.6, 0, P.green);
       plant(x + .5, z + .5); plant(x + 7.5, z + .5);
     }
   }
+  // asientos de la zona común y la recepción (los mismos que usa la simulación para esperar)
+  for (const f of world.furniture || []) {
+    if (f.type === 'sofa') sofa(f.x, f.z, f.w, 0, f.room === 'RECEP' ? '#8a775f' : '#5a6e5d');
+    else if (f.type === 'table') table(f.x, f.z, f.w, f.d);
+  }
+  // mamparas de vidrio de los despachos: perfiles de nogal (fusionados) y vidrio aparte, sin sombra
+  const glass = new T.MeshStandardMaterial({ color: '#dcebe6', transparent: true, opacity: .2, roughness: .08, metalness: .1, depthWrite: false });
+  const panes = [];
+  for (const w of world.walls || []) {
+    const len = Math.hypot(w.x1 - w.x0, w.z1 - w.z0); if (len < .1) continue;
+    const alongX = Math.abs(w.x1 - w.x0) > Math.abs(w.z1 - w.z0), cx = (w.x0 + w.x1) / 2, cz = (w.z0 + w.z1) / 2, H = 2.15;
+    box(root, cx, .05, cz, alongX ? len : .1, .1, alongX ? .1 : len, P.walnut, .01);
+    box(root, cx, H, cz, alongX ? len : .08, .07, alongX ? .08 : len, P.walnut, .01);
+    const posts = Math.max(1, Math.round(len / 1.5));
+    for (let i = 0; i <= posts; i++) { const t = i / posts; box(root, w.x0 + (w.x1 - w.x0) * t, H / 2, w.z0 + (w.z1 - w.z0) * t, .07, H, .07, P.walnut, .01); }
+    const pane = new T.Mesh(new T.BoxGeometry(alongX ? len : .02, H - .1, alongX ? .02 : len), glass);
+    pane.position.set(cx, H / 2, cz); pane.renderOrder = 2; panes.push(pane);
+  }
   const allStations = [...new Set([...Object.values(world.stations), ...world.spare])];
   allStations.forEach(desk);
-  for (let c = 0; c < 2; c++) for (let r = 0; r < 3; r++) plant(10.5 + c * 10, 9.5 + r * 8, r % 2 === 0);
+  for (let c = 0; c < 2; c++) for (let r = 0; r < world.ROWS - 1; r++) plant(10.5 + c * 10, 9.5 + r * 8, r % 2 === 0);
   const entrance = world.spawn.x / 32;
   box(root, entrance, -.02, sizeZ + .5, 5.8, .2, 2, '#cbbb9f');
-  // Static details are merged before the screen bars (which animate) join the scene.
+  // Static details are merged before the live screens (redrawn every few frames) join the scene.
   const animated = [];
-  for (const s of screens) for (const b of s.bars) { b.updateWorldMatrix(true, false); b.applyMatrix4(b.parent.matrixWorld); b.removeFromParent(); animated.push(b); }
-  mergeStatic(root); animated.forEach(b => scene.add(b));
+  for (const s of screens) { const f = s.face; f.updateWorldMatrix(true, false); f.matrixWorld.decompose(f.position, f.quaternion, f.scale); f.removeFromParent(); animated.push(f); }
+  mergeStatic(root); animated.forEach(f => scene.add(f)); panes.forEach(p => scene.add(p));
   return { screens, root };
 }

@@ -76,7 +76,9 @@ try {
   assert.equal(Store.get('tasks', plan.taskIds[0]).agentId, 'marco');
   assert.equal(Store.get('tasks', plan.taskIds[0]).projectId, project.id);
   const station = World.stations.marco;
-  assert.equal(station.room, 'VENT');
+  assert.equal(station.room, 'MARCO', 'Marco works from his own independent office');
+  assert.equal(World.stations.daniel.room, 'DIR');
+  assert.ok(World.rooms.DIR.w > World.rooms.MARCO.w, "Daniel's office is the largest");
   const occupied = Object.values(World.stations).map(s => s.seat.x + ':' + s.seat.y);
   assert.equal(new Set(occupied).size, occupied.length, 'every default character has a separate seat');
   const start = World.nearestFree(Math.floor(World.spawn.x / rt.TILE), Math.floor(World.spawn.y / rt.TILE));

@@ -391,6 +391,9 @@ const Orch = (() => {
     const b = ts.find(t => ['bloqueada', 'fallida', 'pausada', 'interrumpida'].includes(t.state) && t.planId && P(t.planId) && !['cancelado', 'completado'].includes(P(t.planId).state));
     if (b) return { state: 'stopped', label: TS[b.state] + ': ' + b.title };
     const q = ts.find(t => t.state === 'en_cola'); if (q) return { state: 'idle', label: 'Tarea en cola: ' + q.title, queued: true };
+    // tarea terminada hace poco: se muestra unos minutos para que se vea en la oficina
+    const done = ts.filter(t => t.state === 'completada' && t.endedAt && Date.now() - t.endedAt < 15 * 60000).sort((a, b) => b.endedAt - a.endedAt)[0];
+    if (done) return { state: 'idle', label: 'Tarea terminada: ' + done.title, done: true };
     return { state: 'idle', label: 'Disponible' };
   }
   return { createPlan, approvePlan, startPlan, pausePlan, resumePlan, cancelPlan, finishReview, retryTask, reassign, cancelTask, requestApproval, decide, recover, agentStatus, consolidate, pump: schedulePump, running, planTasks, checkPlan, reconcile, drain, setHold, hasQueued, get consolidating() { return consolidating; } };

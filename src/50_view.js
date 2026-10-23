@@ -60,21 +60,35 @@ const View = (() => {
   function sendHome(e) {
     const st = World.stations[e.id]; if (!st) { e.mode = 'free'; e.pose = 'stand'; return; }
     if (e.poi) { e.poi.taken = null; e.poi = null; }
-    e.sitBias = 0;
+    e.sitBias = 0; e.slideTo = null;
     goTo(e, st.stand.tx, st.stand.ty, () => { e.slideTo = { x: st.seat.x, y: st.seat.y, dir: st.seat.dir }; });
   }
+  /* asiento de espera para quien no tiene trabajo: sala de reuniones y zona común (recepción si se llenan) */
+  const hashId = id => { let h = 0; for (const ch of String(id)) h = (h * 31 + ch.charCodeAt(0)) >>> 0; return h; };
+  function pickSeat(e) {
+    const seats = (World.pois && World.pois.wait) || [];
+    const free = seats.filter(p => !p.taken || p.taken === e.id); if (!free.length) return null;
+    const best = Math.min(...free.map(p => p.prio || 1)), pool = free.filter(p => (p.prio || 1) === best);
+    return pool[hashId(e.id) % pool.length];
+  }
+  function seatNow(e, poi) {   // colocación inmediata (al abrir La Cueva), sin desfile por la oficina
+    poi.taken = e.id; e.poi = poi; e.path = []; e.slideTo = null;
+    e.x = poi.x; e.y = poi.y; e.dir = poi.dir; e.pose = 'sit'; e.sitBias = 10; e.mode = 'wait'; e.purpose = null;
+  }
+  function goWait(e) {
+    if (e.poi && e.poi.taken === e.id && e.mode === 'wait') return;
+    if (e.poi) { e.poi.taken = null; e.poi = null; }
+    const poi = pickSeat(e); if (!poi) { e.noSeatUntil = e.t + 15; if (e.mode !== 'seat') sendHome(e); return; }
+    poi.taken = e.id; e.poi = poi; e.sitBias = 0; e.slideTo = null; e.purpose = 'wait';
+    const ok = goTo(e, poi.tx, poi.ty, () => { e.mode = 'wait'; e.slideTo = { x: poi.x, y: poi.y, dir: poi.dir, sit: true, bias: 10 }; });
+    if (!ok) { poi.taken = null; e.poi = null; e.noSeatUntil = e.t + 15; }
+  }
   function takeBreak(e) {
-    const r = Math.random();
-    const pool = r < 0.55 ? World.pois.coffee : World.pois.sofa;
-    const free = pool.filter(p => !p.taken); if (!free.length) return;
+    const free = World.pois.coffee.filter(p => !p.taken); if (!free.length) return;
     const poi = free[Math.floor(Math.random() * free.length)];
-    poi.taken = e.id; e.poi = poi;
-    const ok = goTo(e, poi.tx, poi.ty, () => {
-      if (poi.bias) { e.slideTo = { x: poi.x, y: poi.y, dir: poi.dir, sit: true, bias: poi.bias }; }
-      else { e.dir = poi.dir; e.pose = 'stand'; }
-      e.mode = 'break'; e.wait = poi.bias ? 18 + Math.random() * 20 : 9 + Math.random() * 8;
-      e.bubble = poi.bias ? 'pausa' : 'café'; e.bubbleT = 3.5;
-    });
+    if (e.poi) { e.poi.taken = null; e.poi = null; }
+    poi.taken = e.id; e.poi = poi; e.slideTo = null;
+    const ok = goTo(e, poi.tx, poi.ty, () => { e.dir = poi.dir; e.pose = 'stand'; e.mode = 'break'; e.wait = 9 + Math.random() * 8; e.bubble = 'café'; e.bubbleT = 3.5; });
     if (!ok) { poi.taken = null; e.poi = null; }
   }
   function visit(e, targetId) {
@@ -85,26 +99,32 @@ const View = (() => {
     goTo(e, spot.x, spot.y, () => { e.pose = 'stand'; e.dir = 'N'; e.mode = 'visit'; e.visiting = targetId; });
   }
 
-  let lastAmbient = 0;
+  let lastAmbient = 0, storeReady = false;
+  Bus.on('store:ready', () => { storeReady = true; });
+  // Daniel y Marco esperan en su propio despacho; el resto, sentado en la sala de reuniones o la zona común.
+  const ownsOffice = id => { const st = World.stations[id]; return !!(st && ROOMS[st.room] && ROOMS[st.room].owner === id); };
   function updateAgent(e, dt, now) {
     e.t += dt;
     const S = statusOf(e.id); e.status = S;
-    const busyAtDesk = S.state === 'working' || S.state === 'waiting' || S.state === 'stopped';
-    // estado real manda: si trabaja, vuelve a su puesto
-    if (busyAtDesk && (e.mode === 'break' || e.mode === 'visit' || (e.mode === 'walk' && e.purpose !== 'home'))) { e.purpose = 'home'; sendHome(e); }
-    if (S.state === 'collab' && S.with && e.mode === 'seat' && S.visitor && e.visiting !== S.with) { e.purpose = 'visit'; visit(e, S.with); }
-    if (S.state !== 'collab' && e.mode === 'visit') { e.visiting = null; e.purpose = 'home'; sendHome(e); }
+    if (!storeReady) return;                       // hasta conocer las tareas reales, nadie se mueve
+    const atDesk = S.state === 'working' || S.state === 'waiting' || S.state === 'stopped' || (S.state === 'collab' && !S.visitor) || ownsOffice(e.id);
+    if (!e.placed) { e.placed = true; if (!atDesk && !(S.state === 'collab' && S.visitor)) { const poi = pickSeat(e); if (poi) { seatNow(e, poi); return; } } }
+    // el estado real manda: quien trabaja vuelve a su puesto; quien no, espera sentado
+    if (atDesk && (e.mode === 'break' || e.mode === 'visit' || e.mode === 'wait' || (e.mode === 'walk' && e.purpose !== 'home'))) { e.purpose = 'home'; sendHome(e); }
+    if (S.state === 'collab' && S.with && S.visitor && (e.mode === 'seat' || e.mode === 'wait') && e.visiting !== S.with) { e.purpose = 'visit'; visit(e, S.with); }
+    if (S.state !== 'collab' && e.mode === 'visit') { e.visiting = null; if (atDesk) { e.purpose = 'home'; sendHome(e); } else goWait(e); }
     if (e.slideTo) {
       const t = e.slideTo, dx = t.x - e.x, dy = t.y - e.y, d = Math.hypot(dx, dy), s = 40 * dt;
-      if (d <= s) { e.x = t.x; e.y = t.y; e.dir = t.dir; e.pose = 'sit'; e.sitBias = t.bias || 0; e.slideTo = null; if (!t.sit) { e.mode = 'seat'; e.purpose = null; } }
+      if (d <= s) { e.x = t.x; e.y = t.y; e.dir = t.dir; e.pose = 'sit'; e.sitBias = t.bias || 0; e.slideTo = null; if (!t.sit) { e.mode = 'seat'; e.purpose = null; } else e.purpose = null; }
       else { e.x += dx / d * s; e.y += dy / d * s; }
       return;
     }
     if (e.mode === 'walk') { if (stepPath(e, dt)) { e.pose = 'stand'; e.mode = 'idle'; const f = e.then; e.then = null; if (f) f(); else e.mode = 'free'; } return; }
-    if (e.mode === 'break') { e.wait -= dt; if (e.wait <= 0) { e.purpose = 'home'; sendHome(e); } return; }
-    if (e.mode === 'seat' && S.state === 'idle' && ambient && !reduced && now - lastAmbient > 2.5) {
-      // vida ambiental solo para agentes disponibles: café o sofá, nunca simulan trabajar
-      if (Math.random() < dt * 0.012 && [...ents.values()].filter(x => x.mode === 'break' || (x.mode === 'walk' && x.purpose === 'break')).length < 3) { lastAmbient = now; e.purpose = 'break'; takeBreak(e); }
+    if (e.mode === 'break') { e.wait -= dt; if (e.wait <= 0) { if (atDesk) { e.purpose = 'home'; sendHome(e); } else goWait(e); } return; }
+    if (!atDesk && S.state === 'idle' && (e.mode === 'seat' || e.mode === 'free' || e.mode === 'idle') && !(e.noSeatUntil > e.t)) { goWait(e); return; }
+    if (e.mode === 'wait' && S.state === 'idle' && ambient && !reduced && now - lastAmbient > 4) {
+      // vida ambiental solo para quien espera: un café de vez en cuando; nunca simulan trabajar
+      if (Math.random() < dt * 0.006 && [...ents.values()].filter(x => x.mode === 'break' || (x.mode === 'walk' && x.purpose === 'break')).length < 2) { lastAmbient = now; e.purpose = 'break'; takeBreak(e); }
     }
   }
 
@@ -165,6 +185,8 @@ const View = (() => {
       if (st === 'working') { for (let i = 0; i < 3; i++) { const on = Math.floor(e.t * 3) % 3 === i; ctx.fillStyle = on ? '#ffe2a0' : '#b08a3e'; ctx.fillRect(x - 5 + i * 4, y - 6, 2, 2); } }
       else if (st === 'waiting') { ctx.fillStyle = '#2a211b'; ctx.fillRect(x - 4, y - 12, 8, 9); ctx.fillStyle = '#c79be0'; ctx.fillRect(x - 3, y - 11, 6, 7); ctx.fillStyle = '#2a211b'; ctx.fillRect(x - 1, y - 10, 2, 3); ctx.fillRect(x - 1, y - 6, 2, 1); }
       else if (st === 'stopped') { ctx.fillStyle = '#2a211b'; ctx.fillRect(x - 4, y - 12, 8, 8); ctx.fillStyle = '#d0614a'; ctx.fillRect(x - 3, y - 11, 6, 6); ctx.fillStyle = '#efe5d5'; ctx.fillRect(x - 2, y - 9, 4, 2); }
+      else if (s.done) { const b = reduced ? 0 : Math.round(Math.abs(Math.sin(e.t * 2.5)) * 2); ctx.fillStyle = '#2a211b'; ctx.fillRect(x - 5, y - 13 - b, 10, 10); ctx.fillStyle = '#4f8a46'; ctx.fillRect(x - 4, y - 12 - b, 8, 8); ctx.fillStyle = '#efe5d5'; ctx.fillRect(x - 3, y - 8 - b, 2, 2); ctx.fillRect(x - 1, y - 7 - b, 1, 2); ctx.fillRect(x, y - 9 - b, 1, 2); ctx.fillRect(x + 1, y - 11 - b, 2, 2); }
+      else if (s.queued) { const f = reduced ? 0 : Math.floor(e.t / 1.2) % 2; ctx.fillStyle = '#2a211b'; ctx.fillRect(x - 4, y - 13, 8, 10); ctx.fillStyle = '#e6b24a'; ctx.fillRect(x - 3, y - 12, 6, 8); ctx.fillStyle = '#2a211b'; ctx.fillRect(x - 2, f ? y - 6 : y - 11, 4, 2); ctx.fillRect(x - 1, y - 9, 2, 2); }
       else if (st === 'collab') { ctx.fillStyle = '#2a211b'; ctx.fillRect(x - 6, y - 12, 12, 8); ctx.fillStyle = '#6ec6d9'; ctx.fillRect(x - 5, y - 11, 10, 6); ctx.fillStyle = '#2a211b'; ctx.fillRect(x - 3, y - 9, 2, 2); ctx.fillRect(x + 1, y - 9, 2, 2); }
     }
     if (!(showNames && cam.z >= 1) && e !== selected && e !== hover && !isPlayer) return;

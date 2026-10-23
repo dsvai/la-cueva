@@ -25,6 +25,14 @@ Implementar la opción 2 elegida por Daniel: oficina 3D isométrica, madera, ver
 - Verificar rutas libres y proyección/inversa de cámara con pruebas de geometría.
 - Conservar autenticación, datos y configuración de Vercel. No iniciar tareas pagadas para probar la escena.
 
+## Despachos, esperas y animaciones de estado
+
+- Planta en `ROOM_GRID` (`src/20_data.js`): cada espacio indica cuántas columnas ocupa. Daniel tiene el despacho más grande, en la esquina con ventanas y bajo el rótulo. Marco tiene el segundo, independiente. Ambos tienen mamparas de vidrio con puerta (`World.walls`) y esperan en su propio despacho.
+- Quien no trabaja espera sentado en la sala de reuniones o en la zona común, y en la recepción si se llenan (`World.pois.wait`). Al abrir La Cueva se colocan directamente. Cuando tienen trabajo vuelven caminando a su puesto. Nadie se mueve hasta que se cargan las tareas reales.
+- Sobre cada personaje se muestra un icono animado: trabajando (bocadillo con puntos), tarea terminada en los últimos 15 minutos (✓), tarea pendiente en cola (reloj de arena), pendiente de aprobación, colaborando o necesita revisión. Se respeta `prefers-reduced-motion`.
+- La pantalla de cada ordenador es un lienzo que muestra lo mismo: contenido del oficio mientras trabaja, ✓ terminada, en cola, aprobación o revisión, y reposo si no hay nada.
+- Todo sale de `Orch.agentStatus` (tareas y llamadas reales); la vista nunca inventa actividad.
+
 ## Controles y revisión móvil
 
 - Joystick de ocho direcciones con velocidad proporcional, zona muerta y captura del puntero. Al soltar, cancelar, cambiar de orientación o abrir un menú, vuelve a cero.

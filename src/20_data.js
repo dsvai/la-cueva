@@ -4,7 +4,8 @@
    Todo lo editable se guarda después en la base de datos del artefacto.
    ============================================================ */
 const ROOMS = {
-  DIR:    { name: 'Despacho de Daniel',              short: 'Dirección',     floor: ['wood', '#6e4a31'], wall: '#4f3b2d', accent: '#c9a96a', desk: '#7a5236', chair: '#344c3d', rug: '#344c3d', kind: 'dir' },
+  DIR:    { name: 'Despacho de Daniel',              short: 'Dirección · Daniel', floor: ['wood', '#6e4a31'], wall: '#4f3b2d', accent: '#c9a96a', desk: '#7a5236', chair: '#344c3d', rug: '#344c3d', kind: 'dir', owner: 'daniel' },
+  MARCO:  { name: 'Despacho de Marco',               short: 'Despacho · Marco', floor: ['wood', '#7f5a3b'], wall: '#5a4636', accent: '#b29a7d', desk: '#8a6242', chair: '#3d3028', rug: '#6b4a2f', kind: 'office', owner: 'marco' },
   MKT:    { name: 'Marketing y Estrategia',           short: 'Marketing',     floor: ['wood', '#b48a5f'], wall: '#5f7487', accent: '#9fb8cc', desk: '#c39a6b', chair: '#3e5468', kind: 'dept' },
   CONT:   { name: 'Contenido y Copywriting',          short: 'Contenido',     floor: ['wood', '#a77a55'], wall: '#76596c', accent: '#d2adc0', desk: '#c79f74', chair: '#5b3f52', kind: 'dept' },
   DIS:    { name: 'Diseño y Creatividad',             short: 'Diseño',        floor: ['wood', '#c7a079'], wall: '#b0664a', accent: '#efc3a4', desk: '#e0d4c0', chair: '#8a4a33', kind: 'dept' },
@@ -17,13 +18,14 @@ const ROOMS = {
   DEV:    { name: 'Desarrollo y eCommerce',           short: 'Desarrollo',    floor: ['tile', '#b7bfb1'], wall: '#3c7571', accent: '#86d0c4', desk: '#5b4a3c', chair: '#24504c', kind: 'dept' },
   RECEP:  { name: 'Recepción',                        short: 'Recepción',     floor: ['flag', '#bca98a'], wall: '#8a775f', accent: BR.sand, desk: '#d9cbb2', chair: '#3d3028', kind: 'recep' }
 };
-const ROOM_GRID = [['DIR', 'MKT', 'CONT', 'DIS'], ['VENT', 'MEET', 'LOUNGE', 'PAID'], ['ATC', 'AUTO', 'DEV', 'RECEP']];
+/* planta: [espacio, columnas que ocupa]. Daniel tiene el despacho grande de la esquina y Marco el segundo, independiente. */
+const ROOM_GRID = [[['DIR', 2], ['MARCO', 1]], [['MKT', 1], ['CONT', 1], ['DIS', 1]], [['VENT', 1], ['MEET', 1], ['PAID', 1]], [['ATC', 1], ['AUTO', 1], ['DEV', 1]], [['LOUNGE', 2], ['RECEP', 1]]];
 const DEPT_IDS = ['DEV', 'DIS', 'PAID', 'CONT', 'MKT', 'AUTO', 'VENT', 'ATC'];
 const DEPT_NAMES = { DIR: 'Dirección', DEV: 'Desarrollo y eCommerce', DIS: 'Diseño y Creatividad', PAID: 'Paid Media', CONT: 'Contenido y Copywriting', MKT: 'Marketing y Estrategia', AUTO: 'Automatización e IA', VENT: 'Ventas y Crecimiento', ATC: 'Atención al Cliente y Operaciones' };
 
 /* pantallas por departamento (contenido animado cuando trabajan) */
-const SCREEN_KIND = { DIR: 'text', DEV: 'code', DIS: 'design', PAID: 'chart', CONT: 'text', MKT: 'chart', AUTO: 'flow', VENT: 'sheet', ATC: 'chat' };
-const DESK_KIND = { DIR: 'laptop', DEV: 'code', DIS: 'tablet', PAID: 'dual', CONT: 'single', MKT: 'wide', AUTO: 'dual', VENT: 'single', ATC: 'phone' };
+const SCREEN_KIND = { DIR: 'text', MARCO: 'sheet', DEV: 'code', DIS: 'design', PAID: 'chart', CONT: 'text', MKT: 'chart', AUTO: 'flow', VENT: 'sheet', ATC: 'chat' };
+const DESK_KIND = { DIR: 'laptop', MARCO: 'laptop', DEV: 'code', DIS: 'tablet', PAID: 'dual', CONT: 'single', MKT: 'wide', AUTO: 'dual', VENT: 'single', ATC: 'phone' };
 
 const HONESTY = 'No tienes acceso a internet ni a integraciones externas (Shopify, Gmail, Meta Ads, Google, etc.): no puedes publicar, enviar, comprar ni modificar nada fuera de La Cueva. Prepara entregables listos para que el administrador los use. No inventes datos reales (cifras, métricas, clientes, precios de terceros, enlaces): si faltan, dilo y marca los supuestos.';
 /* límites reales de cada agente según lo que de verdad tiene conectado */
