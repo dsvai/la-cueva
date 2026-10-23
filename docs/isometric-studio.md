@@ -7,7 +7,7 @@ Implementar la opción 2 elegida por Daniel: oficina 3D isométrica, madera, ver
 ## Implementación
 
 1. Escena Three.js empaquetada localmente con esbuild; cámara ortográfica, mobiliario y materiales procedurales. Sin modelos remotos ni servicios de pago.
-2. Conectar la escena al movimiento y a los estados reales del visor. Selección por raycasting, arrastre, zoom y joystick/teclado en coordenadas de pantalla. Mantener el visor 2D como alternativa si WebGL no está disponible.
+2. Conectar la escena al movimiento y a los estados reales del visor. Selección por raycasting, arrastre, zoom y joystick/teclado en coordenadas de pantalla. Mantener el visor 2D como alternativa si WebGL no está disponible o es por software (SwiftShader, llvmpipe): ese render bloquea la página varios segundos por fotograma. `?3d=1` fuerza el 3D para pruebas.
 3. Personajes articulados con apariencia editable y retratos coherentes en directorio/chat. Respetar movimiento reducido y limitar resolución en móvil.
 4. Verificar en navegador local, escritorio y móvil; ejecutar las regresiones, revisar el diff, subir a GitHub y verificar el despliegue automático.
 

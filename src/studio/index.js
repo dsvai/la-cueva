@@ -6,9 +6,20 @@ import { studioCamera, updateCamera, groundPoint, projectPoint, screenDirection,
 const states = { idle: ['Disponible', '#64835a'], working: ['Trabajando', '#ac7d2e'], collab: ['Colaborando', '#4d827a'], waiting: ['Esperando', '#8b6e9e'], stopped: ['Requiere atención', '#a85c45'] };
 let active = null;
 
+function softwareGL(gl) {
+  try {
+    const ext = gl.getExtension('WEBGL_debug_renderer_info');
+    const name = String(gl.getParameter(ext ? ext.UNMASKED_RENDERER_WEBGL : gl.RENDERER) || '');
+    return /swiftshader|llvmpipe|softpipe|software|basic render/i.test(name);
+  } catch (_) { return false; }
+}
+
 function create(canvas, world, callbacks) {
   const gl = canvas.getContext('webgl2', { antialias: true, alpha: false, powerPreference: 'low-power' });
   if (!gl) return null;
+  // Without hardware acceleration (SwiftShader, llvmpipe…) the 3D render blocks the page
+  // for seconds per frame: use the 2D office instead. «?3d=1» forces 3D for testing.
+  if (softwareGL(gl) && !/[?&]3d=1\b/.test(location.search)) { console.warn('WebGL por software: se usa la oficina 2D.'); return null; }
   const renderer = new T.WebGLRenderer({ canvas, context: gl, antialias: true });
   renderer.outputColorSpace = T.SRGBColorSpace; renderer.toneMapping = T.ACESFilmicToneMapping; renderer.toneMappingExposure = 1.18;
   renderer.shadowMap.enabled = true; renderer.shadowMap.type = T.PCFShadowMap;
