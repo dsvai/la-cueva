@@ -10,7 +10,7 @@
   "scripts": {
     "build": "node build.js",
     "dev": "node server/dev.js",
-    "test": "node test/server_test.mjs && node test/reliability_test.mjs && node test/studio_test.mjs && node test/touch_test.mjs && node test/manager_test.mjs && node test/docs_search_test.mjs"
+    "test": "node test/server_test.mjs && node test/reliability_test.mjs && node test/studio_test.mjs && node test/touch_test.mjs && node test/manager_test.mjs && node test/docs_search_test.mjs && node test/github_test.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.135.0",

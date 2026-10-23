@@ -37,7 +37,7 @@ export function loadRuntime(db, sample, runtime) {
   };
   g.window = g;
   // en el worker, las integraciones se leen directamente (las escrituras solo desde aprobaciones del navegador)
-  g.LCIntegrations = { read: (pid, op, params) => integrations.read(pid, op, params), execute: async () => { throw new Error('Las acciones aprobadas se ejecutan desde el panel de Aprobaciones.'); } };
+  g.LCIntegrations = { read: (pid, op, params, provider) => integrations.read(pid, op, params, provider), execute: async () => { throw new Error('Las acciones aprobadas se ejecutan desde el panel de Aprobaciones.'); } };
   g.claude = { use: async n => (n === 'db' ? db : n === 'sample' ? sample : null) };
   return vm.runInContext(source(), vm.createContext(g), { filename: 'la-cueva-' + (runtime || 'worker') + '.js' });
 }

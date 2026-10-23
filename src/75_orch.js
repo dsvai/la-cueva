@@ -295,7 +295,7 @@ const Orch = (() => {
   function approvalNote(a) {
     const ok = a.state === 'aprobada', note = a.note;
     if (a.kind === 'integracion') return ok
-      ? (a.execState === 'hecha' ? 'El administrador APROBÓ «' + a.title + '» y el cambio YA SE HA EJECUTADO en la tienda. Resultado: ' + (a.execResult || '') + '. ' + (note ? 'Nota: ' + note + '. ' : '') + 'Entrega el resultado final.' : 'El administrador APROBÓ «' + a.title + '», pero al ejecutarlo falló: ' + (a.execError || 'error desconocido') + '. ' + (note ? 'Nota: ' + note + '. ' : '') + 'Explica el problema y entrega el resultado final sin reintentarlo.')
+      ? (a.execState === 'hecha' ? 'El administrador APROBÓ «' + a.title + '» y el cambio YA SE HA EJECUTADO. Resultado: ' + (a.execResult || '') + '. ' + (note ? 'Nota: ' + note + '. ' : '') + 'Entrega el resultado final.' : 'El administrador APROBÓ «' + a.title + '», pero al ejecutarlo falló: ' + (a.execError || 'error desconocido') + '. ' + (note ? 'Nota: ' + note + '. ' : '') + 'Explica el problema y entrega el resultado final sin reintentarlo.')
       : 'El administrador RECHAZA «' + a.title + '». ' + (note ? 'Motivo: ' + note + '. ' : '') + 'No lo propongas de nuevo; ajusta el trabajo y entrega el resultado final.';
     return ok ? 'El administrador APRUEBA la acción «' + a.title + '». ' + (note ? 'Nota: ' + note + '. ' : '') + 'Recuerda que no puedes ejecutarla fuera de La Cueva: deja el entregable listo y explica el paso exacto que él debe dar. Entrega el resultado final.'
       : 'El administrador RECHAZA la acción «' + a.title + '». ' + (note ? 'Motivo: ' + note + '. ' : '') + 'No la plantees de nuevo; ajusta el trabajo y entrega el resultado final.';
@@ -326,8 +326,9 @@ const Orch = (() => {
         let r; try { r = await window.LCIntegrations.execute(id); } catch (e) { toast('No se pudo confirmar el resultado. Consulta la aprobación antes de reintentar.', true); return; }
         if (!['hecha', 'fallida'].includes(r.state)) { toast('El servidor ya está ejecutando esta aprobación.'); return; }
         Store.patch('approvals', id, r.state === 'hecha' ? { execState: 'hecha', execResult: r.result, execAt: Date.now() } : { execState: 'fallida', execError: r.result, execAt: Date.now() });
-        Activity.log('integracion', (r.state === 'hecha' ? 'Ejecutado en Shopify: ' : 'Falló en Shopify: ') + trunc(String(r.result || ''), 120), { projectId: a.projectId, agentId: a.agentId });
-        toast(r.state === 'hecha' ? 'Hecho en Shopify: ' + trunc(String(r.result || ''), 90) : 'No se pudo ejecutar en Shopify: ' + trunc(String(r.result || ''), 90), r.state !== 'hecha');
+        const pn = (a.payload && a.payload.provider) === 'github' ? 'GitHub' : 'Shopify';
+        Activity.log('integracion', (r.state === 'hecha' ? 'Ejecutado en ' + pn + ': ' : 'Falló en ' + pn + ': ') + trunc(String(r.result || ''), 120), { projectId: a.projectId, agentId: a.agentId });
+        toast(r.state === 'hecha' ? 'Hecho en ' + pn + ': ' + trunc(String(r.result || ''), 90) : 'No se pudo ejecutar en ' + pn + ': ' + trunc(String(r.result || ''), 90), r.state !== 'hecha');
         resume();
       })();
       return;
@@ -459,6 +460,35 @@ const Tools = (() => {
         const a = Orch.requestApproval({ kind: 'integracion', agentId: agent.id, taskId: ctx.task ? ctx.task.id : null, convId: ctx.task ? null : ctx.convId, projectId: pid, title: 'Shopify · ' + label + (params.titulo ? ': ' + trunc(String(params.titulo), 80) : ''), details: det, payload: { provider: 'shopify', action: String(i.accion), params } });
         if (ctx.signals) ctx.signals.approval = a.id;
         return 'Propuesta enviada a Aprobaciones (' + a.id + '). No se ha cambiado nada en la tienda todavía.' + (ctx.task ? ' Termina tu respuesta; continuarás cuando el administrador decida.' : '');
+      });
+    }
+    // GitHub del proyecto: lectura directa; escritura solo con aprobación (rama nueva + pull request en borrador)
+    const repo = LC_SERVER && ctx.project && ctx.project.integrations && ctx.project.integrations.github && window.LCIntegrations;
+    if (repo) {
+      const R0 = ctx.project.integrations.github;
+      add('github_consultar', 'Consulta el repositorio de GitHub conectado a este proyecto (solo lectura). Operaciones: estado_repo, listar_archivos (ruta, rama), leer_archivo (ruta, rama), buscar_codigo (consulta), listar_issues (estado), listar_pull_requests (estado).', S({ operacion: { type: 'string', enum: ['estado_repo', 'listar_archivos', 'leer_archivo', 'buscar_codigo', 'listar_issues', 'listar_pull_requests'] }, ruta: str('Ruta de carpeta o archivo (vacío = raíz)'), rama: str('Rama (opcional; por defecto la principal)'), consulta: str('Texto a buscar en el código'), estado: { type: 'string', enum: ['open', 'closed', 'all'] } }, ['operacion']), async i => {
+        const r = await window.LCIntegrations.read(pid, String(i.operacion), { ruta: i.ruta, rama: i.rama, consulta: i.consulta, estado: i.estado }, 'github');
+        return trunc(JSON.stringify(r), 32000);
+      });
+      add('github_proponer_cambio', 'Propone una acción en el repositorio de GitHub del proyecto. NO se ejecuta hasta que el administrador la aprueba; entonces se aplica exactamente lo propuesto, una vez. Acciones: crear_issue (titulo, cuerpo, etiquetas), comentar (numero, cuerpo), proponer_cambios_codigo (rama nueva, titulo_pr, descripcion_pr, archivos: lista de {ruta, contenido COMPLETO del archivo}). El código va a una rama nueva con un pull request en borrador; nunca se toca la rama principal ni se fusiona. Lee antes los archivos que vayas a modificar.', S({ accion: { type: 'string', enum: ['crear_issue', 'comentar', 'proponer_cambios_codigo'] }, titulo: str('Título del issue'), cuerpo: str('Texto del issue o comentario (Markdown)'), etiquetas: { type: 'array', items: { type: 'string' } }, numero: { type: 'integer', description: 'Número del issue o pull request (comentar)' }, rama: str('Nombre de la rama nueva, p. ej. la-cueva/mejora-home'), titulo_pr: str('Título del pull request'), descripcion_pr: str('Qué cambia y por qué (Markdown)'), archivos: { type: 'array', items: S({ ruta: str('Ruta del archivo'), contenido: str('Contenido completo del archivo') }, ['ruta', 'contenido']) }, motivo: str('Por qué lo propones') }, ['accion', 'motivo']), async i => {
+        if (ctx.signals && ctx.signals.approval) return 'Ya hay una aprobación pendiente en esta tarea.';
+        const act = String(i.accion), params = {};
+        if (act === 'crear_issue') Object.assign(params, { titulo: trunc(String(i.titulo || ''), 250), cuerpo: trunc(String(i.cuerpo || ''), 20000), etiquetas: Array.isArray(i.etiquetas) ? i.etiquetas.slice(0, 10).map(String) : undefined });
+        else if (act === 'comentar') Object.assign(params, { numero: parseInt(i.numero, 10), cuerpo: trunc(String(i.cuerpo || ''), 20000) });
+        else if (act === 'proponer_cambios_codigo') {
+          const files = Array.isArray(i.archivos) ? i.archivos.filter(f => f && f.ruta).slice(0, 10).map(f => ({ ruta: String(f.ruta).replace(/^\/+/, ''), contenido: String(f.contenido || '') })) : [];
+          if (!files.length) return 'Indica al menos un archivo con su contenido completo.';
+          if (files.some(f => f.ruta.split('/').includes('..'))) return 'Ruta de archivo no válida.';
+          if (files.reduce((n, f) => n + f.contenido.length, 0) > 300000) return 'La propuesta es demasiado grande (máximo 300.000 caracteres); divídela.';
+          Object.assign(params, { rama: trunc(String(i.rama || 'la-cueva/propuesta'), 80), titulo_pr: trunc(String(i.titulo_pr || 'Propuesta de La Cueva'), 250), descripcion_pr: trunc(String(i.descripcion_pr || ''), 20000), archivos: files });
+        } else return 'Acción no disponible.';
+        const label = { crear_issue: 'Crear issue', comentar: 'Comentar en #' + params.numero, proponer_cambios_codigo: 'Pull request en borrador' }[act];
+        const det = '**Repositorio:** ' + R0.repo + '\n\n**Motivo:** ' + trunc(String(i.motivo || ''), 600) + '\n\n' + (act === 'proponer_cambios_codigo'
+          ? '**Rama nueva:** ' + params.rama + ' (desde ' + (R0.defaultBranch || 'la principal') + ')\n\n**Pull request:** ' + params.titulo_pr + '\n\n**Archivos (' + params.archivos.length + '):**\n' + params.archivos.map(f => '- `' + f.ruta + '` · ' + f.contenido.length + ' caracteres').join('\n') + '\n\nSe abrirá como **borrador**: no se fusiona nada hasta que tú lo revises en GitHub.'
+          : '**Texto que se publicará:**\n\n' + trunc(params.titulo ? '«' + params.titulo + '»\n\n' + params.cuerpo : params.cuerpo, 1500));
+        const a = Orch.requestApproval({ kind: 'integracion', agentId: agent.id, taskId: ctx.task ? ctx.task.id : null, convId: ctx.task ? null : ctx.convId, projectId: pid, title: 'GitHub · ' + label + (params.titulo ? ': ' + trunc(params.titulo, 80) : params.titulo_pr ? ': ' + trunc(params.titulo_pr, 80) : ''), details: det, payload: { provider: 'github', action: act, params } });
+        if (ctx.signals) ctx.signals.approval = a.id;
+        return 'Propuesta enviada a Aprobaciones (' + a.id + '). Todavía no se ha hecho nada en GitHub.' + (ctx.task ? ' Termina tu respuesta; continuarás cuando el administrador decida.' : '');
       });
     }
     if (ctx.mode === 'task') {

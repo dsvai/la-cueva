@@ -237,7 +237,7 @@ const Panels = (() => {
   function projectIntegrations(b, pr) {
     const sh = pr.integrations && pr.integrations.shopify;
     const redraw = integ => { Store.patch('projects', pr.id, { integrations: integ }); b.innerHTML = ''; projectIntegrations(b, Store.get('projects', pr.id)); };
-    b.append(h('<div class="note">Las credenciales se guardan cifradas en el servidor, solo para este proyecto: nunca llegan al navegador ni se comparten con otros proyectos. Los agentes pueden <b>consultar</b> la tienda; cualquier <b>cambio</b> (crear borradores, editar textos, publicar) les llega como propuesta a Aprobaciones y solo se ejecuta si lo apruebas.</div>'));
+    b.append(h('<div class="note">Las credenciales se guardan cifradas en el servidor, solo para este proyecto: nunca llegan al navegador ni se comparten con otros proyectos. Los agentes pueden <b>consultar</b> la tienda o el repositorio; cualquier <b>cambio</b> (crear borradores, publicar, abrir issues o proponer código) les llega como propuesta a Aprobaciones y solo se ejecuta si lo apruebas.</div>'));
     const c = h('<div class="card" style="margin-top:12px"><div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"><b style="font-family:var(--f-display);font-size:var(--t-l);flex:1">Shopify</b><span class="chip"></span></div><div class="body" style="margin-top:8px"></div></div>');
     const chip = c.querySelector('.chip'), body = c.querySelector('.body');
     if (sh) {
@@ -258,8 +258,30 @@ const Panels = (() => {
       };
     }
     b.append(c);
+    // GitHub: un repositorio por proyecto, con token fino limitado a ese repositorio
+    const gh = pr.integrations && pr.integrations.github;
+    const gc = h('<div class="card" style="margin-top:12px"><div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"><b style="font-family:var(--f-display);font-size:var(--t-l);flex:1">GitHub</b><span class="chip"></span></div><div class="body" style="margin-top:8px"></div></div>');
+    const gchip = gc.querySelector('.chip'), gbody = gc.querySelector('.body');
+    if (gh) {
+      gchip.className = 'chip ok'; gchip.textContent = 'Conectado';
+      gbody.innerHTML = '<div><b></b></div><div class="hint"></div><div class="toolbar" style="margin-top:10px"><button class="btn sec t">Probar conexión</button><button class="btn ghost d">Desconectar</button></div>';
+      gbody.querySelector('b').textContent = gh.repo; gbody.querySelector('.hint').textContent = 'Conectado ' + fmtDT(gh.connectedAt) + ' · rama principal: ' + (gh.defaultBranch || '—') + (gh.private ? ' · privado' : ' · público') + (gh.canWrite ? '' : ' · el token solo permite leer');
+      gbody.querySelector('.t').onclick = async () => { try { const r = await window.LCIntegrations.read(pr.id, 'estado_repo', {}, 'github'); toast('Conexión correcta: ' + r.repositorio + ' · ' + (r.issues_abiertos || 0) + ' issues abiertos'); } catch (e) { toast(e.message || 'No se pudo conectar.', true); } };
+      gbody.querySelector('.d').onclick = () => confirmBox('¿Desconectar GitHub de este proyecto?', 'Se borra el token guardado en La Cueva. El repositorio no cambia. Si quieres, revoca también el token en GitHub.', 'Desconectar', async () => { try { await window.LCIntegrations.disconnect(pr.id, 'github'); const integ = Object.assign({}, (Store.get('projects', pr.id) || pr).integrations); delete integ.github; redraw(integ); toast('GitHub desconectado'); } catch (e) { toast(e.message, true); } });
+    } else {
+      gchip.className = 'chip warn'; gchip.textContent = 'Sin conectar';
+      gbody.innerHTML = '<details class="hint" style="margin-bottom:10px"><summary style="cursor:pointer;font-weight:600">Cómo crear el token (3 minutos)</summary><ol style="margin:8px 0 0 18px;line-height:1.6"><li>En GitHub: tu foto → <b>Settings → Developer settings → Personal access tokens → Fine-grained tokens → Generate new token</b>.</li><li>Ponle un nombre (p. ej. «La Cueva»), una caducidad (por ejemplo 90 días; apúntatela) y en <b>Repository access</b> elige <b>Only select repositories</b> y solo el repositorio de este proyecto.</li><li>En <b>Permissions → Repository permissions</b>: <b>Contents</b>, <b>Issues</b> y <b>Pull requests</b> en «Read and write» (o «Read-only» si solo quieres que lo consulten).</li><li>Pulsa <b>Generate token</b>, cópialo (empieza por github_pat_) y pégalo aquí. GitHub no te lo volverá a mostrar.</li></ol></details><form class="form"><label class="f">Repositorio<input name="repo" required placeholder="usuario/repositorio o enlace de GitHub" autocomplete="off"></label><label class="f">Token de acceso fino<input name="tok" type="password" required autocomplete="new-password" placeholder="github_pat_…"></label><div><button class="btn" type="submit">Conectar y probar</button></div></form>';
+      const gf = gbody.querySelector('form');
+      gf.onsubmit = async e => {
+        e.preventDefault(); const btn = gf.querySelector('button'); btn.disabled = true; btn.textContent = 'Comprobando con GitHub…';
+        try { const m = await window.LCIntegrations.connect(pr.id, 'github', { repo: gf.repo.value, token: gf.tok.value }); gf.reset(); redraw(Object.assign({}, (Store.get('projects', pr.id) || pr).integrations, { github: m })); toast('GitHub conectado: ' + m.repo); }
+        catch (er) { toast(er.message || 'No se pudo conectar.', true); }
+        btn.disabled = false; btn.textContent = 'Conectar y probar';
+      };
+    }
+    b.append(gc);
     const g = h('<div class="grid g2" style="margin-top:12px"></div>');
-    for (const i of INTEGRATIONS.filter(x => !['claude', 'shopify', 'web', 'openai'].includes(x.id))) { const k = h('<div class="card"><b></b> <span class="chip plain">Pendiente de desarrollo</span><div class="hint"></div></div>'); k.querySelector('b').textContent = i.name; k.querySelector('.hint').textContent = i.need; g.append(k); }
+    for (const i of INTEGRATIONS.filter(x => !['claude', 'shopify', 'web', 'openai', 'github'].includes(x.id))) { const k = h('<div class="card"><b></b> <span class="chip plain">Pendiente de desarrollo</span><div class="hint"></div></div>'); k.querySelector('b').textContent = i.name; k.querySelector('.hint').textContent = i.need; g.append(k); }
     b.append(g);
   }
 
@@ -277,8 +299,8 @@ const Panels = (() => {
         if (a.kind === 'permiso' && a.payload) det += '\n\n**Permiso pedido:** ' + (PERMS[a.payload.permiso] || a.payload.permiso);
         c.querySelector('.d').innerHTML = md(det);
         if (a.kind === 'accion') c.append(h('<div class="note">Aprobar no ejecuta nada fuera de La Cueva. El agente dejará el trabajo listo y te dirá el paso exacto que debes dar tú.</div>'));
-        if (a.kind === 'integracion' && a.state === 'pendiente') c.append(h('<div class="note"><b>Si apruebas, se ejecutará de verdad</b> en la tienda exactamente lo que ves arriba, una sola vez.</div>'));
-        if (a.kind === 'integracion' && a.execState) { const n = h('<div class="note"></div>'); n.textContent = a.execState === 'hecha' ? 'Ejecutado: ' + a.execResult : a.execState === 'fallida' ? 'No se pudo ejecutar: ' + (a.execError || '') : 'Ejecutando en la tienda…'; c.append(n); }
+        if (a.kind === 'integracion' && a.state === 'pendiente') c.append(h('<div class="note"><b>Si apruebas, se ejecutará de verdad</b> exactamente lo que ves arriba, una sola vez.</div>'));
+        if (a.kind === 'integracion' && a.execState) { const n = h('<div class="note"></div>'); n.textContent = a.execState === 'hecha' ? 'Ejecutado: ' + a.execResult : a.execState === 'fallida' ? 'No se pudo ejecutar: ' + (a.execError || '') : 'Ejecutando…'; c.append(n); }
         if (a.note) { const n = h('<div class="hint"></div>'); n.textContent = 'Tu nota: ' + a.note; c.append(n); }
         if (a.state === 'pendiente') {
           const f = h('<div class="toolbar" style="margin-top:8px"><input class="search" style="flex:1;min-width:200px" placeholder="Nota para el agente (opcional)" aria-label="Nota"><button class="btn">Aprobar</button><button class="btn sec">Rechazar</button></div>');
@@ -351,6 +373,7 @@ const Panels = (() => {
       if (i.id === 'claude') { ch.className = 'chip ' + (okNow ? 'ok' : 'warn'); ch.textContent = okNow ? 'Configurada' : 'Pendiente de configuración'; }
       else if (LC_SERVER && i.id === 'openai') { ch.className = 'chip ' + (okNow ? 'ok' : 'warn'); ch.textContent = okNow ? 'Operativa' : 'Implementada, pendiente de configuración'; }
       else if (LC_SERVER && i.id === 'web') { const okW = AI.provider === 'anthropic'; ch.className = 'chip ' + (okW ? 'ok' : 'warn'); ch.textContent = okW ? 'Configurada' : 'Solo con Anthropic API'; }
+      else if (LC_SERVER && i.id === 'github') { const n = Store.all('projects').filter(p => p.integrations && p.integrations.github).length; ch.className = 'chip ' + (n ? 'ok' : 'warn'); ch.textContent = n ? 'Conectado en ' + n + ' proyecto' + (n > 1 ? 's' : '') : 'Implementada, se conecta por proyecto'; }
       else if (LC_SERVER && i.id === 'shopify') { const n = Store.all('projects').filter(p => p.integrations && p.integrations.shopify).length; ch.className = 'chip ' + (n ? 'ok' : 'warn'); ch.textContent = n ? 'Conectada en ' + n + ' proyecto' + (n > 1 ? 's' : '') : 'Implementada, se conecta por proyecto'; }
       else { ch.className = 'chip plain'; ch.textContent = 'Pendiente de desarrollo'; }
       c.querySelector('.hint').textContent = LC_SERVER && i.id === 'openai' ? (okNow ? 'Los agentes usan OpenAI API desde el servidor con la clave guardada en Vercel.' : 'El servidor ya sabe usar OpenAI API: basta con crear la variable OPENAI_API_KEY en Vercel (y AI_PROVIDER=openai si también tienes clave de Anthropic).') : i.how;
@@ -437,6 +460,7 @@ const Panels = (() => {
       ['Adjuntos', 'lim', 'Imágenes, texto, PDF y Word. Los PDF de imágenes los transcribe la IA una vez; el texto queda guardado (en un chat de proyecto, también en sus documentos). Las imágenes sueltas no se guardan en el servidor.'],
       ['Búsqueda y lectura web', AI.provider === 'anthropic' ? 'ready' : 'cfg', AI.provider === 'anthropic' ? 'Los agentes con permiso buscan en internet y leen páginas o PDF públicos, y citan las fuentes. 10 $ por cada 1.000 búsquedas, más tokens.' : 'Disponible solo con Anthropic API como proveedor.'],
       ['Shopify', Store.all('projects').some(p => p.integrations && p.integrations.shopify) ? 'op' : 'cfg', 'Se conecta por proyecto (Proyectos → Integraciones). Lectura de tienda, productos y pedidos; los cambios se ejecutan solo al aprobarlos.'],
+      ['GitHub', Store.all('projects').some(p => p.integrations && p.integrations.github) ? 'op' : 'cfg', 'Se conecta por proyecto con un token limitado a un repositorio. Los agentes consultan código, issues y pull requests; crear issues, comentar o proponer código solo se ejecuta al aprobarlo, siempre en una rama nueva con pull request en borrador.'],
       ['PDF: páginas como imágenes', 'op', 'Al adjuntar un PDF se guardan hasta 20 páginas como imagen; los agentes pueden verlas cuando el texto no basta.'],
       ['Otras integraciones (Gmail, Drive, Meta, Google Ads…)', 'dev', 'Se añadirán con el mismo modelo: credenciales cifradas por proyecto y aprobación para lo sensible.'],
       ['Voz y reuniones visibles entre agentes', 'dev', 'Fase 5.'],

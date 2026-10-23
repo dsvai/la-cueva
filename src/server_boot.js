@@ -82,7 +82,7 @@
     return j.result;
   }
   window.LCIntegrations = {
-    read: (projectId, op, params) => integ({ action: 'read', projectId, op, params }),
+    read: (projectId, op, params, provider) => integ({ action: 'read', projectId, op, params, provider: provider || 'shopify' }),
     connect: (projectId, provider, data) => integ(Object.assign({}, data, { action: 'connect', projectId, provider })),
     disconnect: (projectId, provider) => integ({ action: 'disconnect', projectId, provider }),
     list: projectId => integ({ action: 'list', projectId }),

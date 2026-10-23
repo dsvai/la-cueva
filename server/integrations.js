@@ -12,6 +12,7 @@
 import crypto from 'node:crypto';
 import { q, tx, ensureSchema } from './db.js';
 import { getDoc, writeDoc, DocError } from './docs.js';
+import * as GH from './github.js';
 
 const SHOPIFY_API = process.env.SHOPIFY_API_VERSION || '2026-07';
 const ID_RE = /^[\w.~:@+-]{1,160}$/;
@@ -163,10 +164,24 @@ async function setProjectMeta(projectId, provider, meta) {
   await writeDoc('projects', projectId, { set: { integrations: integ } });
 }
 
+async function connectGithub(projectId, body) {
+  const repo = GH.normalizeRepo(body.repo);
+  const token = String(body.token || '').trim();
+  if (!/^(github_pat_|ghp_)[A-Za-z0-9_]{20,}$/.test(token)) throw new IntError('invalid', 'El token de GitHub empieza por «github_pat_» (recomendado) o «ghp_».');
+  const cred = { repo, token };
+  const info = await GH.verify(cred);                        // prueba real antes de guardar
+  const meta = { repo: info.repo, private: info.private, defaultBranch: info.defaultBranch, canWrite: info.canWrite, url: info.url, connectedAt: Date.now() };
+  cred.repo = info.repo;
+  await saveSecret(projectId, 'github', cred, meta);
+  await setProjectMeta(projectId, 'github', meta);
+  return meta;
+}
+
 export async function connect(projectId, provider, body) {
   checkPid(projectId);
-  if (provider !== 'shopify') throw new IntError('invalid', 'Integración no disponible todavía.');
+  if (provider !== 'shopify' && provider !== 'github') throw new IntError('invalid', 'Integración no disponible todavía.');
   const p = await getDoc('projects', projectId); if (!p.exists) throw new IntError('invalid', 'El proyecto no existe.');
+  if (provider === 'github') return connectGithub(projectId, body || {});
   const shop = normalizeShop(body.shop);
   const cred = { shop };
   if (body.accessToken) { if (!/^shpat_[\w-]{10,}$/.test(String(body.accessToken).trim())) throw new IntError('invalid', 'El token de acceso de Shopify empieza por «shpat_».'); cred.accessToken = String(body.accessToken).trim(); }
@@ -191,8 +206,14 @@ export async function list(projectId) {
   const r = await q('SELECT provider, meta, updated_at FROM lc_secrets WHERE project_id = $1', [projectId]);
   return r.rows.map(x => ({ provider: x.provider, meta: x.meta, updatedAt: x.updated_at }));
 }
-export async function read(projectId, op, params) {
+export async function read(projectId, op, params, provider) {
   checkPid(projectId);
+  if (provider === 'github') {
+    if (!GH.READ[op]) throw new IntError('invalid', 'Consulta de GitHub no disponible: ' + op);
+    const g = await loadSecret(projectId, 'github');
+    if (!g) throw new IntError('not_connected', 'Este proyecto no tiene GitHub conectado.');
+    return GH.READ[op](g.cred, params || {});
+  }
   if (!READ[op]) throw new IntError('invalid', 'Consulta no disponible: ' + op);
   const s = await loadSecret(projectId, 'shopify');
   if (!s) throw new IntError('not_connected', 'Este proyecto no tiene Shopify conectado.');
@@ -223,22 +244,31 @@ export async function executeApproval(approvalId) {
   const a = claim.a;
   try {
     const { provider, action, params } = a.payload;
-    if (provider !== 'shopify' || !WRITE[action]) throw new IntError('invalid', 'Acción no disponible.');
-    const s = await loadSecret(a.projectId, 'shopify');
-    if (!s) throw new IntError('not_connected', 'El proyecto ya no tiene Shopify conectado.');
-    const result = await WRITE[action](a.projectId, s.cred, params || {});
+    let result;
+    if (provider === 'github') {
+      if (!GH.WRITE[action]) throw new IntError('invalid', 'Acción no disponible.');
+      GH.checkProposal(action, params || {});
+      const g = await loadSecret(a.projectId, 'github');
+      if (!g) throw new IntError('not_connected', 'El proyecto ya no tiene GitHub conectado.');
+      result = await GH.WRITE[action](g.cred, params || {});
+    } else {
+      if (provider !== 'shopify' || !WRITE[action]) throw new IntError('invalid', 'Acción no disponible.');
+      const s = await loadSecret(a.projectId, 'shopify');
+      if (!s) throw new IntError('not_connected', 'El proyecto ya no tiene Shopify conectado.');
+      result = await WRITE[action](a.projectId, s.cred, params || {});
+    }
     await writeDoc('approvals', approvalId, { set: { execState: 'hecha', execResult: result, execAt: Date.now() } });
     return { state: 'hecha', result };
   } catch (e) {
-    const msg = e instanceof IntError ? e.message : 'Error inesperado al ejecutar la acción.';
-    if (!(e instanceof IntError)) console.error('[integrations]', e && e.message);
+    const msg = (e instanceof IntError || (e && e.expose)) ? e.message : 'Error inesperado al ejecutar la acción.';
+    if (!(e instanceof IntError) && !(e && e.expose)) console.error('[integrations]', e && e.message);
     await writeDoc('approvals', approvalId, { set: { execState: 'fallida', execError: msg, execAt: Date.now() } });
     return { state: 'fallida', result: msg };
   }
 }
 
 export function errorBody(e) {
-  if (e instanceof IntError || e instanceof DocError) return { code: e.code, message: e.message };
+  if (e instanceof IntError || e instanceof DocError || (e && e.expose)) return { code: e.code, message: e.message };
   console.error('[integrations]', e && e.message);
   return { code: 'server_error', message: 'Error de conexión con la integración.' };
 }

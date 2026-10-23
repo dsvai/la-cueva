@@ -55,6 +55,7 @@ Tras cambiar variables hay que volver a desplegar (Deployments → Redeploy).
 | `api/health.js` | Estado del servidor (nunca devuelve valores de claves) |
 | `api/integrations.js` | Integraciones por proyecto: conectar, consultar y ejecutar acciones ya aprobadas |
 | `server/integrations.js` | Credenciales cifradas (AES-256-GCM) por proyecto y cliente de Shopify (Admin GraphQL, client credentials) |
+| `server/github.js` | Cliente de GitHub por proyecto (token fino de un solo repositorio): lecturas y escrituras solo aprobadas, siempre en rama nueva con pull request en borrador |
 | `server/db.js` | Conexión a Postgres y esquema (solo `CREATE … IF NOT EXISTS`, nunca borra) |
 | `server/docs.js` | Documentos con versión, parches en transacción con bloqueo por documento, feed de cambios, contratos |
 | `server/llm.js` | Proveedores Anthropic / OpenAI (y simulador solo para pruebas) |
@@ -74,6 +75,7 @@ Claves de diseño:
 - **Internet:** búsqueda (`web_search`) y lectura de páginas o PDF públicos (`web_fetch`) de Anthropic, con fuentes citadas. Solo con Anthropic como proveedor. Permiso «Buscar en internet» en cada ficha.
 - **PDF y Word:** texto con pdf.js / mammoth en el navegador; los PDF de imágenes los transcribe la IA. Hasta 20 páginas se guardan como imagen y los agentes pueden verlas con `ver_paginas_documento`.
 - **Shopify:** se conecta por proyecto (Proyectos → Integraciones) con el Client ID y el Client secret de una app del Dev Dashboard. Lectura libre para los agentes del proyecto; las escrituras (crear borrador, editar, cambiar estado) se proponen, aparecen en Aprobaciones con el cambio exacto y el servidor las ejecuta una sola vez al aprobarlas.
+- **GitHub:** un repositorio por proyecto (Proyectos → Integraciones) con un token de acceso fino (fine-grained) limitado a ese repositorio. Los agentes consultan estado, archivos, búsqueda de código, issues y pull requests (`github_consultar`). Crear issues, comentar o proponer código (`github_proponer_cambio`) pasa por Aprobaciones; el código va siempre a una rama nueva con un pull request en borrador: nunca escribe en la rama principal ni fusiona. Las pruebas usan un GitHub simulado (`LC_GITHUB_TEST_BASE`, solo con `LC_ALLOW_MOCK=1`).
 
 ## Estructura del frontend
 
