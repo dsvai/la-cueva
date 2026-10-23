@@ -190,6 +190,7 @@ async function mockStep(req) {
   if (/## TAREA ASIGNADA/.test(all) && /colabora con mia/.test(lastText) && has('pedir_colaboracion')) return call('pedir_colaboracion', { agente: 'mia', peticion: 'Propón la navegación y la home' });
   if (/PAGINASPRUEBA/.test(lastText) && has('ver_paginas_documento')) return call('ver_paginas_documento', { documento: 'plan_texto.pdf', paginas: '1-2' });
   if (/SHOPIFYPRUEBA/.test(lastText) && has('shopify_proponer_cambio')) return call('shopify_proponer_cambio', { accion: 'crear_producto_borrador', titulo: 'Gorra de prueba', descripcion_html: '<p>Prueba</p>', motivo: 'Prueba' });
+  if (/ORDENADORPRUEBA/.test(lastText) && has('usar_ordenador')) return call('usar_ordenador', { encargo: 'Crea un Excel con las ventas de prueba y guárdalo en outputs como ventas.xlsx' });
   if (/APROBACIONPRUEBA/.test(lastText) && has('solicitar_aprobacion')) return call('solicitar_aprobacion', { accion: 'Publicar el tema en producción', detalle: 'Cambios en la home' });
   return done('## Respuesta simulada del servidor\n\nRespuesta de prueba número ' + mockCalls + ' (' + req.modelId + ').\n\n- punto uno\n- punto dos');
 }

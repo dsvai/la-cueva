@@ -7,12 +7,18 @@
    ============================================================ */
 const TS = {   // estados de tarea y su texto visible
   pendiente: 'Pendiente', en_cola: 'En cola', en_curso: 'Trabajando', esperando_colaboracion: 'Esperando colaboración',
-  esperando_aprobacion: 'Esperando tu aprobación', bloqueada: 'Bloqueada', completada: 'Completada', fallida: 'Fallida',
+  esperando_aprobacion: 'Esperando tu aprobación', esperando_ordenador: 'Trabajando en su ordenador', bloqueada: 'Bloqueada', completada: 'Completada', fallida: 'Fallida',
   cancelada: 'Cancelada', pausada: 'Pausada', interrumpida: 'Interrumpida'
 };
 const PS = { pendiente_aprobacion: 'Pendiente de tu visto bueno', en_curso: 'En curso', pausado: 'Pausado', requiere_atencion: 'Requiere atención', consolidando: 'Daniel está consolidando', en_revision: 'Listo para revisar', completado: 'Completado', cancelado: 'Cancelado' };
 const TERMINAL = new Set(['completada', 'fallida', 'cancelada']);
-const ACTIVE = new Set(['en_cola', 'en_curso', 'esperando_colaboracion', 'esperando_aprobacion']);
+const ACTIVE = new Set(['en_cola', 'en_curso', 'esperando_colaboracion', 'esperando_aprobacion', 'esperando_ordenador']);
+/* informe del ordenador en la nube para el agente (resumen, archivos y coste aproximado) */
+function computerReport(r) {
+  if (!r || !r.done) return 'Tu ordenador sigue trabajando (estado: ' + ((r && r.status) || 'desconocido') + ', ' + Math.round((r && r.activeSeconds) || 0) + ' s activos). Puedes esperar con ver_ordenador(' + ((r && r.sessionId) || '') + ') o avisar al administrador de que el resultado llegará después.';
+  const files = (r.files || []).map(f => '- ' + f.name + ' (' + Math.max(1, Math.round((f.size || 0) / 1024)) + ' KB) · descarga: /api/computer?file=' + f.id).join('\n');
+  return 'Resultado de tu ordenador en la nube' + (r.stop === 'budget_reached' ? ' (se paró al llegar al tope de coste del encargo)' : r.error ? ' (con error: ' + r.error + ')' : '') + ':\n\n' + (r.summary || '(sin resumen)') + '\n\n' + (files ? 'Archivos generados (inclúyelos en tu entrega con su enlace de descarga):\n' + files : 'No se generaron archivos en outputs.');
+}
 
 const Orch = (() => {
   const running = new Map();   // taskId -> {ctl, why}
@@ -145,6 +151,11 @@ const Orch = (() => {
       }
       const dropKids = why => { for (const c of sg.collab) { const x = T(c); if (x && !TERMINAL.has(x.state)) { const r = running.get(c); if (r) { r.why = 'cancel'; r.ctl.abort(); } else setTask(x, { state: 'cancelada' }, 'Cancelada: ' + why); } } };
       if (sg.block) { dropKids('la tarea que la pidió quedó bloqueada'); setTask(fresh, { state: 'bloqueada', error: sg.block }, 'Bloqueo: ' + sg.block); escalate(fresh, 'Bloqueo en «' + fresh.title + '»: ' + sg.block); }
+      else if (sg.computer && !sg.approval) {
+        dropKids('la tarea que la pidió trabaja en su ordenador');
+        setTask(fresh, { state: 'esperando_ordenador', computer: sg.computer, draft: trunc(res.text, 600) }, 'Trabajando en su ordenador en la nube');
+        Activity.log('tarea', agent.name + ' trabaja en su ordenador en la nube: ' + trunc(sg.computer.encargo || '', 120), { agentId: agent.id, taskId: id, projectId: fresh.projectId });
+      }
       else if (sg.approval) {
         dropKids('la tarea que la pidió espera una aprobación');
         const ap = Store.get('approvals', sg.approval);
@@ -192,6 +203,7 @@ const Orch = (() => {
       out.push('Intégralas y entrega ahora el resultado FINAL completo de tu tarea.');
       return out.join('\n\n');
     }
+    if (task.resume === 'computer') return (task.resumeNote || 'Tu ordenador en la nube ha terminado.') + '\n\nRevisa el resultado y entrega ahora tu trabajo FINAL completo, citando los archivos generados con su enlace de descarga.';
     if (task.resume === 'approval') return task.resumeNote || 'Decisión del administrador recibida. Entrega ahora el resultado final.';
     if (task.resume === 'info' || task.resume === 'retry') return (task.resumeNote ? 'Indicaciones del administrador: ' + task.resumeNote + '\n\n' : '') + 'Continúa y entrega el resultado final completo.';
     return 'Continúa y entrega el resultado final completo.';
@@ -199,7 +211,7 @@ const Orch = (() => {
   function kindOf(text) { return /```html/i.test(text) ? 'html' : /```(js|javascript|python|py|liquid|json|ts|css|sh|bash)/i.test(text) ? 'code' : 'doc'; }
   function complete(task, res) {
     if (res.truncated) throw new Error('No se puede completar una tarea con una respuesta incompleta.');
-    const d = Store.put('deliverables', { id: uid('dl'), projectId: task.projectId, planId: task.planId, taskId: task.id, agentId: task.agentId, title: task.title, kind: kindOf(res.text), summary: trunc(res.text.replace(/[#*`>|]/g, '').replace(/\s+/g, ' '), 280), ts: Date.now(), status: 'borrador', truncated: !!res.truncated, chars: res.text.length });
+    const d = Store.put('deliverables', { id: uid('dl'), projectId: task.projectId, planId: task.planId, taskId: task.id, agentId: task.agentId, title: task.title, kind: kindOf(res.text), files: (task.computerFiles || []).slice(0, 50), summary: trunc(res.text.replace(/[#*`>|]/g, '').replace(/\s+/g, ' '), 280), ts: Date.now(), status: 'borrador', truncated: !!res.truncated, chars: res.text.length });
     Store.put('dtext', { id: d.id, text: res.text });
     setTask(task, { state: 'completada', endedAt: Date.now(), resultId: d.id, summary: d.summary }, 'Completada' + (res.truncated ? ' (respuesta cortada por longitud)' : ''));
     Activity.log('entregable', ((Roster.get(task.agentId) || {}).name) + ' entregó «' + task.title + '»', { agentId: task.agentId, taskId: task.id, projectId: task.projectId, deliverableId: d.id });
@@ -357,7 +369,32 @@ const Orch = (() => {
     return n;
   }
   /* cambios hechos desde otro sitio (p. ej. pausar o cancelar desde el navegador mientras el servidor trabaja) */
+  const pcPoll = new Map(), pcBusy = new Set();
+  function pollComputer(t) {
+    const c = t.computer; if (!c || !c.sessionId || pcBusy.has(t.id)) return;
+    const last = pcPoll.get(t.id) || 0; if (Date.now() - last < 8000) return;
+    pcPoll.set(t.id, Date.now()); pcBusy.add(t.id);
+    window.LCComputer.status(c.sessionId).then(r => {
+      const fresh = T(t.id); if (!fresh || fresh.state !== 'esperando_ordenador') return;
+      if (!r.done) {
+        if (Date.now() - (c.startedAt || Date.now()) > 50 * 60000) { window.LCComputer.stop(c.sessionId).catch(() => { }); setTask(fresh, { state: 'en_cola', resume: 'computer', resumeNote: 'Tu ordenador en la nube no terminó en 50 minutos y se ha detenido. Entrega lo que tengas y explica qué faltó.' }, 'Ordenador detenido por tiempo'); schedulePump(); }
+        return;
+      }
+      const usd = window.LCComputer.estimateUsd ? window.LCComputer.estimateUsd(r) : 0;
+      setTask(fresh, { state: 'en_cola', resume: 'computer', resumeNote: computerReport(r), computerFiles: (fresh.computerFiles || []).concat(r.files || []).slice(-50), computerUsd: Math.round(((fresh.computerUsd || 0) + usd) * 100) / 100, computer: null }, 'Ordenador: trabajo terminado' + ((r.files || []).length ? ' · ' + r.files.length + ' archivo(s)' : ''));
+      Activity.log('tarea', ((Roster.get(fresh.agentId) || {}).name || '') + ' terminó en su ordenador en la nube (≈ ' + usd.toFixed(2) + ' $, ' + Math.round(r.activeSeconds || 0) + ' s)', { agentId: fresh.agentId, taskId: fresh.id, projectId: fresh.projectId });
+      schedulePump();
+    }).catch(e => {
+      const fresh = T(t.id); if (!fresh || fresh.state !== 'esperando_ordenador') return;
+      const n = (fresh.computerErrors || 0) + 1;
+      if (n >= 6) { setTask(fresh, { state: 'en_cola', resume: 'computer', resumeNote: 'No se pudo consultar tu ordenador en la nube (' + (e.message || e) + '). Entrega lo que tengas y explica el problema.', computerErrors: 0 }, 'Ordenador: sin respuesta'); schedulePump(); }
+      else { fresh.computerErrors = n; Store.put('tasks', fresh); }
+    }).finally(() => pcBusy.delete(t.id));
+  }
+  function waitingComputer() { return Store.all('tasks').some(t => t.state === 'esperando_ordenador'); }
   function reconcile() {
+    if (LC_RUNTIME === 'worker' && window.LCComputer) for (const t of Store.all('tasks').filter(t => t.state === 'esperando_ordenador')) pollComputer(t);
+    for (const t of Store.all('tasks').filter(t => t.state === 'cancelada' && t.computer && t.computer.sessionId)) { if (LC_RUNTIME === 'worker' && window.LCComputer) window.LCComputer.stop(t.computer.sessionId).catch(() => { }); t.computer = null; Store.put('tasks', t); }
     for (const t of Store.all('tasks').filter(t => t.state === 'esperando_aprobacion')) {
       const ap = Store.get('approvals', t.approvalId);
       if (ap && ap.kind === 'integracion' && ['hecha', 'fallida'].includes(ap.execState))
@@ -384,6 +421,7 @@ const Orch = (() => {
     for (const l of Activity.live.values()) if (l.agentId === id) return { state: 'working', label: l.label || (l.kind === 'chat' ? 'Respondiendo en el chat' : 'Trabajando') };
     const ts = Store.all('tasks').filter(t => t.agentId === id);
     const run = ts.find(t => t.state === 'en_curso'); if (run) return { state: 'working', label: run.title };
+    const pc = ts.find(t => t.state === 'esperando_ordenador'); if (pc) return { state: 'working', label: 'En su ordenador en la nube: ' + pc.title, computer: true };
     const w = ts.find(t => t.state === 'esperando_aprobacion'); if (w) return { state: 'waiting', label: 'Espera tu aprobación: ' + w.title };
     const c = ts.find(t => t.state === 'esperando_colaboracion'); if (c) { const other = T((c.waitingOn || [])[0]); return { state: 'collab', label: 'Colaborando en ' + c.title, with: other && other.agentId, visitor: true }; }
     const helping = Store.all('tasks').find(t => t.state === 'esperando_colaboracion' && (t.waitingOn || []).some(x => { const y = T(x); return y && y.agentId === id && !TERMINAL.has(y.state); }));
@@ -396,7 +434,7 @@ const Orch = (() => {
     if (done) return { state: 'idle', label: 'Tarea terminada: ' + done.title, done: true };
     return { state: 'idle', label: 'Disponible' };
   }
-  return { createPlan, approvePlan, startPlan, pausePlan, resumePlan, cancelPlan, finishReview, retryTask, reassign, cancelTask, requestApproval, decide, recover, agentStatus, consolidate, pump: schedulePump, running, planTasks, checkPlan, reconcile, drain, setHold, hasQueued, get consolidating() { return consolidating; } };
+  return { waitingComputer, createPlan, approvePlan, startPlan, pausePlan, resumePlan, cancelPlan, finishReview, retryTask, reassign, cancelTask, requestApproval, decide, recover, agentStatus, consolidate, pump: schedulePump, running, planTasks, checkPlan, reconcile, drain, setHold, hasQueued, get consolidating() { return consolidating; } };
 })();
 
 /* ============================================================
@@ -474,6 +512,24 @@ const Tools = (() => {
         if (ctx.signals) ctx.signals.approval = a.id;
         return 'Propuesta enviada a Aprobaciones (' + a.id + '). No se ha cambiado nada en la tienda todavía.' + (ctx.task ? ' Termina tu respuesta; continuarás cuando el administrador decida.' : '');
       });
+    }
+    // Ordenador en la nube (Claude Managed Agents): terminal, archivos, web y habilidades de Office/PDF
+    const pcOk = LC_SERVER && window.LCComputer && window.LCComputer.available && (AI.provider === 'anthropic' || AI.provider === 'mock');
+    if (pcOk) {
+      add('usar_ordenador', 'Encarga trabajo a tu propio ordenador en la nube: tiene terminal, puede ejecutar código (Python, Node…), instalar paquetes, navegar y descargar de internet, analizar datos y CREAR ARCHIVOS reales (Excel con fórmulas, Word, PowerPoint, PDF, CSV, imágenes, código…). Úsalo cuando el trabajo necesite cálculos fiables, archivos descargables o tareas largas; no para responder preguntas sencillas. Describe el encargo completo y concreto (qué hacer, datos, formato y nombre de los archivos). Puedes pasarle documentos del proyecto por su nombre. Tarda de uno a varios minutos y tiene coste (tiempo + tokens). No tiene acceso a las cuentas del proyecto (tiendas, correo, repositorios): para eso usa tus otras herramientas.', S({ encargo: str('Encargo completo y concreto para el ordenador'), documentos: { type: 'array', items: { type: 'string' }, description: 'Nombres de documentos del proyecto que necesita (opcional)' } }, ['encargo']), async i => {
+        if (ctx.signals && ctx.signals.computer) return 'Ya hay un encargo en marcha en tu ordenador. Termina tu respuesta; continuarás cuando acabe.';
+        const docs = [];
+        if (pid) for (const n of (Array.isArray(i.documentos) ? i.documentos : []).slice(0, 20)) {
+          const want = String(n).toLowerCase(), all = Store.all('pdocs').filter(x => x.projectId === pid);
+          const d = all.find(x => String(x.name).toLowerCase() === want) || all.find(x => String(x.name).toLowerCase().includes(want));
+          if (d) { const t = await Store.load('ptext', d.id); docs.push({ nombre: d.name, texto: (t && t.text) || '' }); }
+        }
+        const r = await window.LCComputer.start({ projectId: pid, agentName: agent.name, agentRole: agent.role, projectName: ctx.project ? ctx.project.name : '', encargo: String(i.encargo || ''), documentos: docs });
+        if (ctx.mode === 'task' && ctx.signals) { ctx.signals.computer = { sessionId: r.sessionId, startedAt: r.startedAt, encargo: trunc(String(i.encargo || ''), 300) }; return 'Encargo enviado a tu ordenador en la nube (' + r.sessionId + (docs.length ? ', con ' + docs.length + ' documento(s)' : '') + '). Termina ya tu respuesta con una frase: continuarás automáticamente con el resultado y los archivos cuando acabe.'; }
+        if (!window.LCComputer.wait) return 'Encargo enviado (' + r.sessionId + ').';
+        return computerReport(await window.LCComputer.wait(r.sessionId, 200000));
+      });
+      if (ctx.mode !== 'task' && window.LCComputer.wait) add('ver_ordenador', 'Espera y recoge el resultado de un encargo de tu ordenador en la nube que seguía trabajando.', S({ sesion: str('Id de la sesión (sesn_…)') }, ['sesion']), async i => computerReport(await window.LCComputer.wait(String(i.sesion || ''), 200000)));
     }
     // Gmail del proyecto: solo borradores (no se envía nada, así que no necesita aprobación)
     const mail = LC_SERVER && ctx.project && ctx.project.integrations && ctx.project.integrations.gmail && window.LCIntegrations;

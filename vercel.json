@@ -28,6 +28,9 @@
     },
     "api/oauth.js": {
       "maxDuration": 30
+    },
+    "api/computer.js": {
+      "maxDuration": 300
     }
   },
   "crons": [

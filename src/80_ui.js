@@ -28,7 +28,10 @@ function md(src) {
     .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
     .replace(/(^|[\s(])\*([^*\n]+)\*(?=[\s).,;:!?]|$)/g, '$1<em>$2</em>')
     .replace(/(^|[\s(])_([^_\n]+)_(?=[\s).,;:!?]|$)/g, '$1<em>$2</em>')
-    .replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>');
+    .replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>')
+    // archivos del ordenador en la nube: descarga a través del servidor de La Cueva
+    .replace(/\[([^\]]+)\]\((\/api\/computer\?file=file_[\w-]+)\)/g, '<a href="$2" download>$1</a>')
+    .replace(/(^|[\s(:])(\/api\/computer\?file=file_[\w-]+)/g, '$1<a href="$2" download>Descargar</a>');
   const lines = src.split('\n'); const out = []; let i = 0;
   while (i < lines.length) {
     let l = lines[i];

@@ -88,6 +88,21 @@
     list: projectId => integ({ action: 'list', projectId }),
     execute: approvalId => integ({ action: 'execute', approvalId })
   };
+  async function pc(body) {
+    let r; try { r = await fetch('/api/computer', { method: 'POST', credentials: 'same-origin', headers: { 'content-type': 'application/json', 'x-lc': '1' }, body: JSON.stringify(body) }); }
+    catch (_) { throw new Error('Sin conexión con el servidor.'); }
+    if (r.status === 401) { sessionLost(); throw new Error('La sesión ha caducado.'); }
+    const j = await r.json().catch(() => ({}));
+    if (!j.ok) throw new Error(j.message || 'No se pudo usar el ordenador en la nube.');
+    return j.result;
+  }
+  window.LCComputer = {
+    available: false,
+    start: p => pc(Object.assign({ action: 'start' }, p)),
+    wait: (sessionId, maxMs) => pc({ action: 'wait', sessionId, maxMs }),
+    status: sessionId => pc({ action: 'status', sessionId }),
+    stop: sessionId => pc({ action: 'stop', sessionId })
+  };
   window.LCServer = {
     kick,
     async logout() { try { await fetch('/api/session', { method: 'DELETE', credentials: 'same-origin', headers: { 'x-lc': '1' } }); } catch (_) { } location.reload(); },
@@ -95,7 +110,7 @@
     syncError: null, setup: {}
   };
   function start(s) {
-    window.LCServer.setup = s.setup || {};
+    window.LCServer.setup = s.setup || {}; window.LCComputer.available = !!(s.setup && s.setup.computer);
     const R = window.LCRemote;
     const db = R.makeRemoteDb(R.httpTransport('', sessionLost), { observer: true, full: EAGER, pollMs: () => (document.hidden ? 20000 : 4000), onSyncError: e => { window.LCServer.syncError = e; } });
     const dbReady = db.start().then(() => db, () => db);

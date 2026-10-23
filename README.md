@@ -39,6 +39,7 @@ Variables de entorno (Project → Settings → Environment Variables). **Nunca**
 | `LC_TIMEZONE` | No | Zona horaria de las programaciones (por defecto `Europe/Madrid`). |
 | `LC_SECRET_KEY` | Recomendable | Clave para cifrar las credenciales de integraciones. Si no existe, se deriva de `ADMIN_PASSWORD` (y cambiar la contraseña obliga a reconectarlas). |
 | `SHOPIFY_API_VERSION` | No | Versión de la Admin API de Shopify (por defecto `2026-07`). |
+| `LC_COMPUTER_DAILY`, `LC_COMPUTER_MAX_USD`, `LC_COMPUTER_MODEL` | No | Ordenador en la nube: encargos al día (10), tope de coste por encargo en dólares (2) y modelo (por defecto el modelo normal de Anthropic). |
 | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | Para Gmail | Cliente OAuth «Aplicación web» de tu Google Cloud con la Gmail API habilitada. URI de redirección: `https://<tu-dominio>/api/oauth`. Solo se pide el permiso `gmail.compose` (redactar). |
 
 Tras cambiar variables hay que volver a desplegar (Deployments → Redeploy).
@@ -54,9 +55,11 @@ Tras cambiar variables hay que volver a desplegar (Deployments → Redeploy).
 | `api/llm.js` | Un paso del modelo con la clave del servidor, en streaming (NDJSON) |
 | `api/worker.js` | Orquestador en segundo plano: cron horario (`CRON_SECRET`), aviso del navegador o relanzamiento propio |
 | `api/health.js` | Estado del servidor (nunca devuelve valores de claves) |
+| `api/computer.js` | Ordenador en la nube: iniciar, esperar o parar un encargo y descargar sus archivos (la clave nunca sale del servidor) |
 | `api/oauth.js` | Inicio y vuelta del OAuth de Google para conectar Gmail a un proyecto (estado firmado; la cookie de sesión no viaja en la vuelta) |
 | `api/integrations.js` | Integraciones por proyecto: conectar, consultar y ejecutar acciones ya aprobadas |
 | `server/integrations.js` | Credenciales cifradas (AES-256-GCM) por proyecto y cliente de Shopify (Admin GraphQL, client credentials) |
+| `server/computer.js` | Claude Managed Agents: entorno y agente base reutilizados, una sesión por encargo con documentos del proyecto, tope de coste, límite diario, resultado y archivos |
 | `server/shopify_gql.js` | Shopify completo: consultas GraphQL de lectura y lista de mutaciones permitidas (sin nada que mueva dinero o toque la cuenta) |
 | `server/google.js` | Gmail: OAuth, renovación del acceso y borradores MIME (nunca envía) |
 | `server/github.js` | Cliente de GitHub por proyecto (token fino de un solo repositorio): lecturas y escrituras solo aprobadas, siempre en rama nueva con pull request en borrador |
@@ -79,6 +82,7 @@ Claves de diseño:
 - **Internet:** búsqueda (`web_search`) y lectura de páginas o PDF públicos (`web_fetch`) de Anthropic, con fuentes citadas. Solo con Anthropic como proveedor. Permiso «Buscar en internet» en cada ficha.
 - **PDF y Word:** texto con pdf.js / mammoth en el navegador; los PDF de imágenes los transcribe la IA. Hasta 20 páginas se guardan como imagen y los agentes pueden verlas con `ver_paginas_documento`.
 - **Shopify:** se conecta por proyecto (Proyectos → Integraciones) con el Client ID y el Client secret de una app del Dev Dashboard. Lectura libre para los agentes del proyecto; las escrituras (crear borrador, editar, cambiar estado) se proponen, aparecen en Aprobaciones con el cambio exacto y el servidor las ejecuta una sola vez al aprobarlas.
+- **Ordenador en la nube:** con Anthropic como proveedor, cada agente puede usar `usar_ordenador`: una sesión de Claude Managed Agents con terminal, código, web y habilidades de Excel, Word, PowerPoint y PDF. En una tarea, la tarea pasa a «Trabajando en su ordenador» y el worker consulta la sesión cada pocos segundos sin gastar llamadas de IA; al terminar continúa sola con el resumen y los archivos (que se adjuntan al entregable y se descargan por `/api/computer?file=`). En el chat espera hasta unos 3 minutos y, si no ha acabado, se recoge con `ver_ordenador`. El ordenador no recibe credenciales de las integraciones. Coste: tiempo activo de sesión más tokens, en la cuenta de API.
 - **Shopify completo:** además de las acciones sencillas, los agentes consultan cualquier dato de la Admin API (`consulta_graphql`) y proponen cualquier cambio de la lista permitida (`ejecutar_mutacion`: catálogo, variantes y precios, stock, colecciones, páginas, blog, menús, redirecciones, metafields, traducciones, archivos, temas y descuentos). La aprobación muestra en español qué cambiará, los avisos (publica, borra, diseño, clientes) y los datos exactos; el servidor vuelve a validar la operación al ejecutarla. Reembolsos, cobros, cancelaciones, apps, personal y pagos quedan fuera. «Probar conexión» lista los permisos que le faltan a la app.
 - **Gmail (borradores):** se conecta por proyecto con OAuth de Google (`gmail.compose`). Los agentes crean borradores con `gmail_crear_borrador`; no existe ninguna acción de enviar ni de leer la bandeja. El token de actualización se guarda cifrado y se revoca al desconectar.
 - **GitHub:** un repositorio por proyecto (Proyectos → Integraciones) con un token de acceso fino (fine-grained) limitado a ese repositorio. Los agentes consultan estado, archivos, búsqueda de código, issues y pull requests (`github_consultar`). Crear issues, comentar o proponer código (`github_proponer_cambio`) pasa por Aprobaciones; el código va siempre a una rama nueva con un pull request en borrador: nunca escribe en la rama principal ni fusiona. Las pruebas usan un GitHub simulado (`LC_GITHUB_TEST_BASE`, solo con `LC_ALLOW_MOCK=1`).

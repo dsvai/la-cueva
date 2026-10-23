@@ -306,7 +306,7 @@ const Panels = (() => {
     }
     b.append(mc);
     const g = h('<div class="grid g2" style="margin-top:12px"></div>');
-    for (const i of INTEGRATIONS.filter(x => !['claude', 'shopify', 'web', 'openai', 'github', 'gmail'].includes(x.id))) { const k = h('<div class="card"><b></b> <span class="chip plain">Pendiente de desarrollo</span><div class="hint"></div></div>'); k.querySelector('b').textContent = i.name; k.querySelector('.hint').textContent = i.need; g.append(k); }
+    for (const i of INTEGRATIONS.filter(x => !['claude', 'shopify', 'web', 'openai', 'github', 'gmail', 'computer'].includes(x.id))) { const k = h('<div class="card"><b></b> <span class="chip plain">Pendiente de desarrollo</span><div class="hint"></div></div>'); k.querySelector('b').textContent = i.name; k.querySelector('.hint').textContent = i.need; g.append(k); }
     b.append(g);
   }
 
@@ -399,6 +399,7 @@ const Panels = (() => {
       else if (LC_SERVER && i.id === 'openai') { ch.className = 'chip ' + (okNow ? 'ok' : 'warn'); ch.textContent = okNow ? 'Operativa' : 'Implementada, pendiente de configuración'; }
       else if (LC_SERVER && i.id === 'web') { const okW = AI.provider === 'anthropic'; ch.className = 'chip ' + (okW ? 'ok' : 'warn'); ch.textContent = okW ? 'Configurada' : 'Solo con Anthropic API'; }
       else if (LC_SERVER && i.id === 'github') { const n = Store.all('projects').filter(p => p.integrations && p.integrations.github).length; ch.className = 'chip ' + (n ? 'ok' : 'warn'); ch.textContent = n ? 'Conectado en ' + n + ' proyecto' + (n > 1 ? 's' : '') : 'Implementada, se conecta por proyecto'; }
+      else if (LC_SERVER && i.id === 'computer') { const ok = !!(window.LCServer && LCServer.setup && LCServer.setup.computer); ch.className = 'chip ' + (ok ? 'ok' : 'warn'); ch.textContent = ok ? 'Operativo' : 'Solo con Anthropic API'; }
       else if (LC_SERVER && i.id === 'gmail') { const n = Store.all('projects').filter(p => p.integrations && p.integrations.gmail).length, cfg = !!(window.LCServer && LCServer.setup && LCServer.setup.google); ch.className = 'chip ' + (n ? 'ok' : 'warn'); ch.textContent = n ? 'Conectado en ' + n + ' proyecto' + (n > 1 ? 's' : '') : cfg ? 'Implementada, se conecta por proyecto' : 'Implementada, pendiente de configuración'; }
       else if (LC_SERVER && i.id === 'shopify') { const n = Store.all('projects').filter(p => p.integrations && p.integrations.shopify).length; ch.className = 'chip ' + (n ? 'ok' : 'warn'); ch.textContent = n ? 'Conectada en ' + n + ' proyecto' + (n > 1 ? 's' : '') : 'Implementada, se conecta por proyecto'; }
       else { ch.className = 'chip plain'; ch.textContent = 'Pendiente de desarrollo'; }
@@ -642,7 +643,13 @@ const Panels = (() => {
     if (htmlBlock) { const x = h('<button class="btn sm sec"><svg><use href="#i-dl"/></svg>Descargar .html</button>'); x.onclick = () => Dl.save(slug(d.title) + '.html', htmlBlock); tb.append(x); }
     if (d.status !== 'aprobado') { const x = h('<button class="btn sm">Marcar como aprobado</button>'); x.onclick = () => { Store.patch('deliverables', id, { status: 'aprobado' }); Activity.log('entregable', 'Aprobaste el entregable «' + d.title + '»', { deliverableId: id, projectId: d.projectId }); deliverable(id); }; tb.append(x); }
     if (d.truncated) b.append(h('<div class="note warn" style="margin-bottom:10px">La respuesta llegó cortada por longitud. Puedes pedir al agente que continúe.</div>'));
-    b.append(tb); const c = h('<div class="md doc"></div>'); c.innerHTML = md(text); b.append(c);
+    b.append(tb);
+    if ((d.files || []).length) {   // archivos reales creados en el ordenador en la nube
+      const fl = h('<div class="card" style="margin-bottom:12px"><b>Archivos</b><div class="list" style="margin-top:6px"></div></div>');
+      for (const f of d.files) { const a = h('<a class="li" download style="text-decoration:none"><svg style="width:16px;height:16px"><use href="#i-dl"/></svg><span class="grow"></span><small></small></a>'); a.href = '/api/computer?file=' + encodeURIComponent(f.id); a.querySelector('span').textContent = f.name; a.querySelector('small').textContent = Math.max(1, Math.round((f.size || 0) / 1024)) + ' KB'; fl.querySelector('.list').append(a); }
+      b.append(fl);
+    }
+    const c = h('<div class="md doc"></div>'); c.innerHTML = md(text); b.append(c);
   }
   function preview(att) {
     current = 'viewer';

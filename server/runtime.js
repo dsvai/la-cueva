@@ -14,6 +14,7 @@ import { runOps } from './docs.js';
 import { step, provider } from './llm.js';
 import { setMeta } from './db.js';
 import * as integrations from './integrations.js';
+import * as computer from './computer.js';
 
 const require = createRequire(import.meta.url);
 const remote = require('../shared/remote.cjs');
@@ -38,6 +39,8 @@ export function loadRuntime(db, sample, runtime) {
   g.window = g;
   // en el worker, las integraciones se leen directamente (las escrituras solo desde aprobaciones del navegador)
   g.LCIntegrations = { read: (pid, op, params, provider) => integrations.read(pid, op, params, provider), execute: async () => { throw new Error('Las acciones aprobadas se ejecutan desde el panel de Aprobaciones.'); } };
+  // ordenador en la nube: en el worker se llama directamente; nunca se espera aquí (la tarea queda «esperando_ordenador»)
+  g.LCComputer = { available: computer.available(), start: p => computer.start(p), status: id => computer.status(id), stop: id => computer.stop(id), estimateUsd: r => computer.estimateUsd(r) };
   g.claude = { use: async n => (n === 'db' ? db : n === 'sample' ? sample : null) };
   return vm.runInContext(source(), vm.createContext(g), { filename: 'la-cueva-' + (runtime || 'worker') + '.js' });
 }
@@ -80,7 +83,7 @@ export async function runWorker(opts) {
       Sched.tick();
       Orch.pump();
       for (const id of Orch.running.keys()) before.add(id);
-      const busy = Orch.running.size || Orch.consolidating.size || Orch.hasQueued() || Store.pending();
+      const busy = Orch.running.size || Orch.consolidating.size || Orch.hasQueued() || Store.pending() || Orch.waitingComputer();
       if (!busy) { if (++idle >= 3) break; } else idle = 0;
       await sleep(1000);
     }
@@ -90,7 +93,7 @@ export async function runWorker(opts) {
     let handedOff = false;
     if (Orch.running.size) { handedOff = true; Orch.drain('handoff'); for (let i = 0; i < 40 && Orch.running.size; i++) await sleep(250); }
     await Store.flush(15000);
-    summary.more = handedOff || Orch.hasQueued();
+    summary.more = handedOff || Orch.hasQueued() || Orch.waitingComputer();
     summary.reason = summary.more ? 'Queda trabajo para la siguiente tanda' : 'Sin trabajo pendiente';
     return summary;
   } catch (e) {

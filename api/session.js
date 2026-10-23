@@ -4,9 +4,10 @@ import { isAuthed, passwordConfigured, tryLogin, sessionCookie, clearCookie, csr
 import { dbConfigured, ensureSchema } from '../server/db.js';
 import { provider } from '../server/llm.js';
 import { configured as googleConfigured } from '../server/google.js';
+import { available as computerAvailable } from '../server/computer.js';
 
 export default wrap(async (req, res) => {
-  const setup = { db: dbConfigured(), password: passwordConfigured(), ai: !!provider(), google: googleConfigured() };
+  const setup = { db: dbConfigured(), password: passwordConfigured(), ai: !!provider(), google: googleConfigured(), computer: computerAvailable() && provider() === 'anthropic' };
   if (req.method === 'GET') { const authed = isAuthed(req); if (authed) setup.aiProvider = provider(); return json(res, 200, { authenticated: authed, setup }); }
   if (!csrfOk(req)) return json(res, 403, { code: 'forbidden', message: 'Petición no permitida.' });
   if (req.method === 'DELETE') return json(res, 200, { ok: true }, { 'set-cookie': clearCookie(req) });
