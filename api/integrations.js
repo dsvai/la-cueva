@@ -14,7 +14,7 @@ export default wrap(async (req, res) => {
     if (b.action === 'list') out = await list(b.projectId);
     else if (b.action === 'connect') out = await connect(b.projectId, b.provider, b);
     else if (b.action === 'disconnect') out = await disconnect(b.projectId, b.provider);
-    else if (b.action === 'read') out = await read(b.projectId, b.op, b.params, b.provider === 'github' ? 'github' : 'shopify');
+    else if (b.action === 'read') out = await read(b.projectId, b.op, b.params, ['github', 'gmail'].includes(b.provider) ? b.provider : 'shopify');
     else if (b.action === 'execute') out = await executeApproval(b.approvalId);
     else return json(res, 400, { code: 'invalid', message: 'Acción desconocida.' });
     return json(res, 200, { ok: true, result: out });

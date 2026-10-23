@@ -13,6 +13,8 @@ import crypto from 'node:crypto';
 import { q, tx, ensureSchema } from './db.js';
 import { getDoc, writeDoc, DocError } from './docs.js';
 import * as GH from './github.js';
+import * as SG from './shopify_gql.js';
+import * as GG from './google.js';
 
 const SHOPIFY_API = process.env.SHOPIFY_API_VERSION || '2026-07';
 const ID_RE = /^[\w.~:@+-]{1,160}$/;
@@ -35,7 +37,7 @@ export function decrypt(s) {
   return JSON.parse(Buffer.concat([d.update(Buffer.from(data, 'base64')), d.final()]).toString('utf8'));
 }
 
-class IntError extends Error { constructor(code, message) { super(message); this.code = code; } }
+class IntError extends Error { constructor(code, message) { super(message); this.code = code; this.expose = true; } }
 
 async function loadSecret(projectId, provider) {
   const r = await q('SELECT enc, meta FROM lc_secrets WHERE project_id = $1 AND provider = $2', [projectId, provider]);
@@ -83,6 +85,7 @@ async function gql(projectId, cred, query, variables) {
   const j = await res.json().catch(() => ({}));
   if (j.errors && j.errors.length) {
     const msg = j.errors.map(e => e.message).join('; ');
+    if (/access denied|access scope|not approved to access/i.test(msg) && cred.clientId && cred.token) { cred.token = null; if (projectId) { const cur = await loadSecret(projectId, 'shopify'); if (cur) await saveSecret(projectId, 'shopify', Object.assign(cur.cred, { token: null, tokenExp: 0 }), cur.meta); } }
     if (/access denied|access scope|not approved to access/i.test(msg)) throw new IntError('shopify_scope', 'La app de Shopify no tiene permiso para esto: ' + msg.slice(0, 200) + '. Añade el permiso en el Dev Dashboard (nueva versión) y apruébalo en la tienda.');
     throw new IntError('shopify_error', 'Shopify respondió con un error: ' + msg.slice(0, 300));
   }
@@ -117,10 +120,35 @@ const READ = {
     const cur = os[0] ? os[0].totalPriceSet.shopMoney.currencyCode : '';
     const top = {}; for (const o of os) for (const li of o.lineItems.nodes) top[li.title] = (top[li.title] || 0) + li.quantity;
     return { periodo_dias: dias, pedidos: os.length, ventas: total.toFixed(2) + ' ' + cur, ticket_medio: os.length ? (total / os.length).toFixed(2) + ' ' + cur : '—', mas_vendidos: Object.entries(top).sort((a, b) => b[1] - a[1]).slice(0, 10).map(([t, n]) => t + ' (' + n + ')'), aviso: os.length >= 100 ? 'Se han contado solo los 100 pedidos más recientes del periodo.' : undefined };
+  },
+  /* cualquier consulta de lectura de la Admin API (colecciones, páginas, temas, descuentos, inventario, clientes…) */
+  async consulta_graphql(pid, cred, p) {
+    SG.checkQuery(p.consulta);
+    const d = await gql(pid, cred, String(p.consulta), p.variables && typeof p.variables === 'object' ? p.variables : {});
+    const txt = JSON.stringify(d);
+    return txt.length > 60000 ? { aviso: 'Respuesta recortada: pide menos elementos o menos campos.', datos: txt.slice(0, 60000) } : d;
+  },
+  /* permisos que la tienda ha concedido a la app */
+  async permisos(pid, cred) {
+    const d = await gql(pid, cred, '{ currentAppInstallation { accessScopes { handle } } }');
+    return { permisos: ((d.currentAppInstallation && d.currentAppInstallation.accessScopes) || []).map(x => x.handle) };
+  },
+  /* comprueba una mutación antes de proponerla (no la ejecuta) */
+  async validar_mutacion(pid, cred, p) {
+    return { operaciones: SG.checkMutation(p.mutacion), avisos: SG.RISK_TEXT };
   }
 };
 
 const WRITE = {
+  /* cambio completo aprobado: una mutación de la lista permitida, con sus variables fijadas al proponerla */
+  async ejecutar_mutacion(pid, cred, p) {
+    const ops = SG.checkMutation(p.mutacion);
+    const d = await gql(pid, cred, String(p.mutacion), p.variables && typeof p.variables === 'object' ? p.variables : {});
+    const errs = SG.userErrors(d);
+    if (errs.length) throw new IntError('shopify_error', 'Shopify no aplicó el cambio: ' + errs.join('; ').slice(0, 600));
+    const out = JSON.stringify(d);
+    return 'Hecho en Shopify: ' + ops.map(o => o.label).join(', ') + '. Respuesta: ' + (out.length > 1500 ? out.slice(0, 1500) + '…' : out);
+  },
   async crear_producto_borrador(pid, cred, p) {
     const input = { title: String(p.titulo || '').slice(0, 255), descriptionHtml: String(p.descripcion_html || ''), vendor: p.proveedor ? String(p.proveedor) : undefined, productType: p.tipo ? String(p.tipo) : undefined, tags: Array.isArray(p.etiquetas) ? p.etiquetas.map(String).slice(0, 50) : undefined, status: 'DRAFT' };
     if (p.seo_titulo || p.seo_descripcion) input.seo = { title: p.seo_titulo || undefined, description: p.seo_descripcion || undefined };
@@ -177,6 +205,17 @@ async function connectGithub(projectId, body) {
   return meta;
 }
 
+/* Gmail: lo guarda la vuelta del OAuth de Google (api/oauth.js) */
+export async function saveGmail(projectId, cred) {
+  checkPid(projectId);
+  const p = await getDoc('projects', projectId); if (!p.exists) throw new IntError('invalid', 'El proyecto no existe.');
+  const meta = { email: cred.email, connectedAt: Date.now() };
+  await saveSecret(projectId, 'gmail', cred, meta);
+  await setProjectMeta(projectId, 'gmail', meta);
+  return meta;
+}
+export const GMAIL_OPS = ['estado_gmail', 'crear_borrador'];
+
 export async function connect(projectId, provider, body) {
   checkPid(projectId);
   if (provider !== 'shopify' && provider !== 'github') throw new IntError('invalid', 'Integración no disponible todavía.');
@@ -197,6 +236,7 @@ export async function connect(projectId, provider, body) {
 }
 export async function disconnect(projectId, provider) {
   checkPid(projectId);
+  if (provider === 'gmail') { const g = await loadSecret(projectId, 'gmail').catch(() => null); if (g) await GG.revoke(g.cred); }
   await q('DELETE FROM lc_secrets WHERE project_id = $1 AND provider = $2', [projectId, provider]);
   await setProjectMeta(projectId, provider, null);
   return { ok: true };
@@ -213,6 +253,14 @@ export async function read(projectId, op, params, provider) {
     const g = await loadSecret(projectId, 'github');
     if (!g) throw new IntError('not_connected', 'Este proyecto no tiene GitHub conectado.');
     return GH.READ[op](g.cred, params || {});
+  }
+  if (provider === 'gmail') {
+    if (!GMAIL_OPS.includes(op)) throw new IntError('invalid', 'Acción de Gmail no disponible: ' + op);
+    const g = await loadSecret(projectId, 'gmail');
+    if (!g) throw new IntError('not_connected', 'Este proyecto no tiene Gmail conectado.');
+    const before = g.cred.access;
+    try { return op === 'estado_gmail' ? await GG.profile(g.cred) : await GG.createDraft(g.cred, params || {}); }
+    finally { if (g.cred.access !== before) await saveSecret(projectId, 'gmail', g.cred, g.meta).catch(() => {}); }
   }
   if (!READ[op]) throw new IntError('invalid', 'Consulta no disponible: ' + op);
   const s = await loadSecret(projectId, 'shopify');
@@ -253,6 +301,7 @@ export async function executeApproval(approvalId) {
       result = await GH.WRITE[action](g.cred, params || {});
     } else {
       if (provider !== 'shopify' || !WRITE[action]) throw new IntError('invalid', 'Acción no disponible.');
+      if (action === 'ejecutar_mutacion') SG.checkMutation((params || {}).mutacion);
       const s = await loadSecret(a.projectId, 'shopify');
       if (!s) throw new IntError('not_connected', 'El proyecto ya no tiene Shopify conectado.');
       result = await WRITE[action](a.projectId, s.cred, params || {});

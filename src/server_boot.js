@@ -92,9 +92,10 @@
     kick,
     async logout() { try { await fetch('/api/session', { method: 'DELETE', credentials: 'same-origin', headers: { 'x-lc': '1' } }); } catch (_) { } location.reload(); },
     async health() { const r = await fetch('/api/health', { credentials: 'same-origin', cache: 'no-store' }); return r.json(); },
-    syncError: null
+    syncError: null, setup: {}
   };
   function start(s) {
+    window.LCServer.setup = s.setup || {};
     const R = window.LCRemote;
     const db = R.makeRemoteDb(R.httpTransport('', sessionLost), { observer: true, full: EAGER, pollMs: () => (document.hidden ? 20000 : 4000), onSyncError: e => { window.LCServer.syncError = e; } });
     const dbReady = db.start().then(() => db, () => db);
@@ -107,6 +108,12 @@
       try { Bus.on('orch:kick', kick); } catch (_) { }   // eslint-disable-line no-undef
       kick();
       document.addEventListener('visibilitychange', () => { if (!document.hidden) db.syncNow(); });
+      // vuelta de una conexión OAuth (Gmail): aviso y URL limpia
+      const qs = new URLSearchParams(location.search), integ = qs.get('integ');
+      if (integ) {
+        history.replaceState(null, '', location.pathname);
+        setTimeout(() => { try { toast(integ === 'gmail-ok' ? 'Gmail conectado' + (qs.get('email') ? ': ' + qs.get('email') : '') + '. Los agentes de ese proyecto ya pueden prepararte borradores.' : (qs.get('msg') || 'No se pudo completar la conexión.'), integ !== 'gmail-ok'); if (qs.get('project')) Panels.open('projects', qs.get('project')); } catch (_) { } }, 1500);   // eslint-disable-line no-undef
+      }
     };
     sc.onerror = () => showError('No se pudo cargar la aplicación.');
     document.body.append(sc);

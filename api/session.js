@@ -3,9 +3,10 @@ import { wrap, json, readJson } from '../server/http.js';
 import { isAuthed, passwordConfigured, tryLogin, sessionCookie, clearCookie, csrfOk } from '../server/auth.js';
 import { dbConfigured, ensureSchema } from '../server/db.js';
 import { provider } from '../server/llm.js';
+import { configured as googleConfigured } from '../server/google.js';
 
 export default wrap(async (req, res) => {
-  const setup = { db: dbConfigured(), password: passwordConfigured(), ai: !!provider() };
+  const setup = { db: dbConfigured(), password: passwordConfigured(), ai: !!provider(), google: googleConfigured() };
   if (req.method === 'GET') { const authed = isAuthed(req); if (authed) setup.aiProvider = provider(); return json(res, 200, { authenticated: authed, setup }); }
   if (!csrfOk(req)) return json(res, 403, { code: 'forbidden', message: 'Petición no permitida.' });
   if (req.method === 'DELETE') return json(res, 200, { ok: true }, { 'set-cookie': clearCookie(req) });

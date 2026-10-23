@@ -25,6 +25,9 @@
     },
     "api/integrations.js": {
       "maxDuration": 60
+    },
+    "api/oauth.js": {
+      "maxDuration": 30
     }
   },
   "crons": [
